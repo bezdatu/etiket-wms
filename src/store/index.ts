@@ -131,7 +131,7 @@ export const useStore = create<AppState>()(
       })
     }),
     {
-      name: 'etiket-storage',
+      name: 'etiket-storage-v2',  // bumped: forces fresh load of new 1500-location structure
     }
   )
 );
