@@ -4,6 +4,7 @@ import { useStore } from '../store';
 import { Camera, CheckCircle2, AlertTriangle, ArrowRight, X, Package, ScanLine } from 'lucide-react';
 import { Product } from '../types';
 import Webcam from 'react-webcam';
+import { createWorker } from 'tesseract.js';
 
 export const ScanFlow = () => {
   return (
@@ -49,6 +50,7 @@ const ScanModeSelect = () => {
   );
 };
 
+
 // 2. CAMERA CAPTURE
 const CameraCapture = () => {
   const navigate = useNavigate();
@@ -57,24 +59,79 @@ const CameraCapture = () => {
   const { products } = useStore();
   
   const [isScanning, setIsScanning] = useState(false);
+  const [scanStatus, setScanStatus] = useState('');
   const webcamRef = useRef<Webcam>(null);
 
   const handleScan = useCallback(async () => {
     setIsScanning(true);
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    const randomProduct = products[Math.floor(Math.random() * products.length)];
-    const confidence = Math.random() > 0.3 ? (0.95 + Math.random() * 0.04) : (0.4 + Math.random() * 0.3);
+    setScanStatus('Захват изображения...');
+
     const imageSrc = webcamRef.current?.getScreenshot();
-    
-    navigate('/scan/result', { 
-      state: { 
-        type: opType, 
-        prediction: randomProduct, 
-        confidence,
-        capturedPhoto: imageSrc
-      } 
-    });
+    if (!imageSrc) {
+      setIsScanning(false);
+      setScanStatus('');
+      return;
+    }
+
+    try {
+      setScanStatus('Распознавание текста...');
+
+      // Crop top 35% of image (where product name is) using canvas
+      const croppedDataUrl = await new Promise<string>((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width;
+          canvas.height = Math.floor(img.height * 0.35);
+          const ctx = canvas.getContext('2d')!;
+          ctx.drawImage(img, 0, 0, img.width, canvas.height, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL('image/jpeg', 0.9));
+        };
+        img.src = imageSrc;
+      });
+
+      // Run Tesseract OCR on the top crop
+      const worker = await createWorker('rus+eng');
+      const { data } = await worker.recognize(croppedDataUrl);
+      await worker.terminate();
+
+      // Extract first non-empty line with enough chars as the product name
+      const lines = data.lines
+        .map(l => l.text.trim().replace(/[«»""'']/g, '').trim())
+        .filter(t => t.length >= 3);
+
+      const detectedName = lines[0] || 'Неизвестный товар';
+      const confidence = data.confidence / 100;
+
+      // Try to match to existing product (case-insensitive)
+      const existingProduct = products.find(p =>
+        p.name.toLowerCase().includes(detectedName.toLowerCase().slice(0, 6)) ||
+        detectedName.toLowerCase().includes(p.name.toLowerCase().slice(0, 6))
+      );
+
+      const resultProduct: Product = existingProduct ?? {
+        id: `prod_ocr_${Date.now()}`,
+        name: detectedName,
+        description: 'Распознано с этикетки',
+        photoUrl: '',
+        labelSignature: `ocr_${Date.now()}`
+      };
+
+      navigate('/scan/result', {
+        state: {
+          type: opType,
+          prediction: resultProduct,
+          confidence: Math.min(0.99, Math.max(0.4, confidence)),
+          capturedPhoto: imageSrc,
+          isNewProduct: !existingProduct,
+          ocrLines: lines.slice(0, 5)
+        }
+      });
+    } catch (err) {
+      console.error('OCR error:', err);
+      setScanStatus('Ошибка распознавания');
+      setTimeout(() => { setIsScanning(false); setScanStatus(''); }, 2000);
+    }
   }, [navigate, opType, products]);
 
   return (
@@ -115,7 +172,7 @@ const CameraCapture = () => {
         </div>
       </div>
 
-      <div className="mt-6 flex justify-center pb-8">
+      <div className="mt-6 flex flex-col items-center pb-8 gap-3">
         <button 
           onClick={handleScan}
           disabled={isScanning}
@@ -123,6 +180,9 @@ const CameraCapture = () => {
         >
           <Camera size={32} className="text-white" />
         </button>
+        {scanStatus && (
+          <p className="text-sm text-primary-400 animate-pulse font-medium">{scanStatus}</p>
+        )}
       </div>
     </div>
   );
@@ -140,14 +200,14 @@ const ScanResult = () => {
   const navigate = useNavigate();
   const routerLocation = useLocation();
   const locationState = routerLocation.state;
-  const { locations, inventory, recordOperation, updateProduct } = useStore();
+  const { locations, inventory, recordOperation, updateProduct, addProduct } = useStore();
   
   if (!locationState) {
     navigate('/scan');
     return null;
   }
 
-  const { type, prediction, confidence, capturedPhoto } = locationState;
+  const { type, prediction, confidence, capturedPhoto, isNewProduct } = locationState;
   const product: Product = prediction;
   const isHighConfidence = confidence >= 0.95;
   const totalBalance = inventory.filter(i => i.productId === product.id).reduce((a, c) => a + c.quantity, 0);
@@ -192,6 +252,10 @@ const ScanResult = () => {
 
   const handleConfirm = () => {
     if (!selectedLocId || quantity <= 0) return;
+
+    if (isNewProduct) {
+      addProduct(product);
+    }
 
     // Save photo to product template on first incoming scan
     if (type === 'incoming' && capturedPhoto) {
