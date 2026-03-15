@@ -194,7 +194,7 @@ const ScanResult = () => {
     if (!selectedLocId || quantity <= 0) return;
 
     // Save photo to product template on first incoming scan
-    if (type === 'incoming' && !product.photoUrl && capturedPhoto) {
+    if (type === 'incoming' && capturedPhoto) {
       updateProduct(product.id, { photoUrl: capturedPhoto });
     }
 
