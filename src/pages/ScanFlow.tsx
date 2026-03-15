@@ -101,6 +101,7 @@ const CameraCapture = () => {
         .filter(t => t.length >= 3);
 
       const detectedName = lines[0] || 'Неизвестный товар';
+      const detectedDescription = lines.slice(1, 4).join(' ') || 'Распознано с этикетки';
       const confidence = data.confidence / 100;
 
       // Try to match to existing product (case-insensitive)
@@ -109,12 +110,12 @@ const CameraCapture = () => {
         detectedName.toLowerCase().includes(p.name.toLowerCase().slice(0, 6))
       );
 
-      const resultProduct: Product = existingProduct ?? {
-        id: `prod_ocr_${Date.now()}`,
+      const resultProduct: Product = {
+        id: existingProduct?.id || `prod_ocr_${Date.now()}`,
         name: detectedName,
-        description: 'Распознано с этикетки',
-        photoUrl: '',
-        labelSignature: `ocr_${Date.now()}`
+        description: detectedDescription,
+        photoUrl: existingProduct?.photoUrl || '',
+        labelSignature: existingProduct?.labelSignature || `ocr_${Date.now()}`
       };
 
       navigate('/scan/result', {
@@ -257,9 +258,13 @@ const ScanResult = () => {
       addProduct(product);
     }
 
-    // Save photo to product template on first incoming scan
-    if (type === 'incoming' && capturedPhoto) {
-      updateProduct(product.id, { photoUrl: capturedPhoto });
+    // Update product info from OCR on incoming scan (overwrites mock names/descriptions)
+    if (type === 'incoming') {
+      updateProduct(product.id, { 
+        name: product.name,
+        description: product.description,
+        photoUrl: capturedPhoto || product.photoUrl 
+      });
     }
 
     recordOperation({
