@@ -17,24 +17,50 @@ interface AppState {
   resetDate: () => void;
 }
 
-const initialLocations: Location[] = [
-  { id: 'loc_1', code: 'R1-S2-F4-P3', rack: 'R1', sector: 'S2', floor: 'F4', position: 'P3', isActive: true, isOccupied: false },
-  { id: 'loc_2', code: 'R1-S2-F4-P4', rack: 'R1', sector: 'S2', floor: 'F4', position: 'P4', isActive: true, isOccupied: true },
-];
+const generateLocations = (): Location[] => {
+  const locs: Location[] = [];
+  let idCounter = 1;
+  const racks = ['R1', 'R2', 'R3', 'R4', 'R5'];
+  const sectors = ['S1', 'S2'];
+  const floors = ['F1', 'F2'];
+  const positions = ['P1', 'P2', 'P3', 'P4', 'P5'];
+
+  for (const r of racks) {
+    for (const s of sectors) {
+      for (const f of floors) {
+        for (const p of positions) {
+          locs.push({
+            id: `loc_${idCounter++}`,
+            code: `${r}-${s}-${f}-${p}`,
+            rack: r,
+            sector: s,
+            floor: f,
+            position: p,
+            isActive: true,
+            isOccupied: false
+          });
+        }
+      }
+    }
+  }
+  return locs;
+};
+
+const initialLocations: Location[] = generateLocations();
 
 const initialProducts: Product[] = [
   { 
     id: 'prod_1', 
     name: 'Industrial Widget A', 
     description: 'A heavy-duty industrial widget.', 
-    photoUrl: 'https://picsum.photos/seed/widgetA/200/200', 
+    photoUrl: '', // Will be populated on first incoming scan
     labelSignature: 'sig_a' 
   },
   { 
     id: 'prod_2', 
     name: 'Industrial Widget B', 
     description: 'Looks very similar to A but has different threading.', 
-    photoUrl: 'https://picsum.photos/seed/widgetB/200/200', 
+    photoUrl: '', // Will be populated on first incoming scan
     labelSignature: 'sig_b' 
   },
 ];

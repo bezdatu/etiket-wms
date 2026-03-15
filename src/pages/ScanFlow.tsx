@@ -67,13 +67,14 @@ const CameraCapture = () => {
     // MOCK LOGIC: Randomly select a product and assign a confidence score
     const randomProduct = products[Math.floor(Math.random() * products.length)];
     const confidence = Math.random() > 0.3 ? (0.95 + Math.random() * 0.04) : (0.4 + Math.random() * 0.3); // High confidence 70% of time
+    const imageSrc = webcamRef.current?.getScreenshot();
     
     navigate('/scan/result', { 
       state: { 
         type: opType, 
         prediction: randomProduct, 
         confidence,
-        // photoBase64: imageSrc
+        capturedPhoto: imageSrc
       } 
     });
   }, [navigate, opType, products]);
@@ -134,38 +135,59 @@ const CameraCapture = () => {
 const ScanResult = () => {
   const navigate = useNavigate();
   const locationState = useLocation().state;
-  const { locations, inventory, recordOperation } = useStore();
+  const { locations, inventory, recordOperation, updateProduct } = useStore();
   
   if (!locationState) {
     navigate('/scan');
     return null;
   }
 
-  const { type, prediction, confidence } = locationState;
+  const { type, prediction, confidence, capturedPhoto } = locationState;
   const product: Product = prediction;
   const isHighConfidence = confidence >= 0.95;
   const totalBalance = inventory.filter(i => i.productId === product.id).reduce((a,c)=>a+c.quantity, 0);
   const isOutOfStock = type === 'outgoing' && totalBalance === 0;
 
   const [quantity, setQuantity] = useState(1);
-  const [selectedLocId, setSelectedLocId] = useState('');
+  const [rack, setRack] = useState('');
+  const [sector, setSector] = useState('');
+  const [floor, setFloor] = useState('');
+  const [pos, setPos] = useState('');
 
   // Auto-select location logic
   useEffect(() => {
+    let targetLocId = '';
     const productInv = inventory.filter(i => i.productId === product.id && i.quantity > 0);
     if (productInv.length > 0) {
-      setSelectedLocId(productInv[0].locationId);
+      targetLocId = productInv[0].locationId;
     } else if (type === 'incoming') {
       const freeLoc = locations.find(l => {
         const locInv = inventory.filter(i => i.locationId === l.id && i.quantity > 0);
         return locInv.length === 0; // strictly empty
       });
-      if (freeLoc) setSelectedLocId(freeLoc.id);
+      if (freeLoc) targetLocId = freeLoc.id;
+    }
+
+    if (targetLocId) {
+      const tLoc = locations.find(l => l.id === targetLocId);
+      if (tLoc) {
+        setRack(tLoc.rack);
+        setSector(tLoc.sector);
+        setFloor(tLoc.floor);
+        setPos(tLoc.position);
+      }
     }
   }, [product.id, inventory, locations, type]);
 
+  const selectedLocId = locations.find(l => l.rack === rack && l.sector === sector && l.floor === floor && l.position === pos)?.id || '';
+
   const handleConfirm = () => {
     if (!selectedLocId || quantity <= 0) return;
+
+    if (type === 'incoming' && !product.photoUrl && capturedPhoto) {
+      updateProduct(product.id, { photoUrl: capturedPhoto });
+    }
+
     recordOperation({
       id: `op_${Date.now()}`,
       type: type,
@@ -205,6 +227,8 @@ const ScanResult = () => {
           <div className="w-24 h-24 bg-slate-800 rounded-lg overflow-hidden flex-shrink-0">
             {product.photoUrl ? (
               <img src={product.photoUrl} alt="" className="w-full h-full object-cover" />
+            ) : capturedPhoto ? (
+              <img src={capturedPhoto} alt="Scanned" className="w-full h-full object-cover" />
             ) : <Package className="m-auto mt-6 text-slate-600" size={40} />}
           </div>
           <div>
@@ -243,30 +267,68 @@ const ScanResult = () => {
 
               <div>
                 <label className="text-xs text-muted font-bold uppercase tracking-wider block mb-2">Локация</label>
-                <select 
-                  className="input-field appearance-none"
-                  value={selectedLocId}
-                  onChange={e => setSelectedLocId(e.target.value)}
-                >
-                  <option value="" disabled>Выберите локацию</option>
-                  {locations.map(loc => {
-                    const locInventory = inventory.filter(i => i.locationId === loc.id && i.quantity > 0);
-                    const isCurrentProductHere = locInventory.some(i => i.productId === product.id);
-                    const isOtherProductHere = locInventory.some(i => i.productId !== product.id);
-                    
-                    let statusText = '(Свободно)';
-                    if (isCurrentProductHere) statusText = '(Текущая)';
-                    else if (isOtherProductHere) statusText = '(Занято др. товаром)';
+                <div className="grid grid-cols-2 gap-2">
+                  <select 
+                    className="input-field appearance-none py-2 px-3 text-sm"
+                    value={rack}
+                    onChange={e => { setRack(e.target.value); setSector(''); setFloor(''); setPos(''); }}
+                  >
+                    <option value="" disabled>Стеллаж</option>
+                    {Array.from(new Set(locations.map(l => l.rack))).sort().map(r => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                  </select>
 
-                    const isDisabled = type === 'incoming' && isOtherProductHere;
+                  <select 
+                    className="input-field appearance-none py-2 px-3 text-sm"
+                    value={sector}
+                    onChange={e => { setSector(e.target.value); setFloor(''); setPos(''); }}
+                    disabled={!rack}
+                  >
+                    <option value="" disabled>Сектор</option>
+                    {Array.from(new Set(locations.filter(l => l.rack === rack).map(l => l.sector))).sort().map(s => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
 
-                    return (
-                      <option key={loc.id} value={loc.id} disabled={isDisabled}>
-                        {loc.code} {statusText}
-                      </option>
-                    );
-                  })}
-                </select>
+                  <select 
+                    className="input-field appearance-none py-2 px-3 text-sm"
+                    value={floor}
+                    onChange={e => { setFloor(e.target.value); setPos(''); }}
+                    disabled={!sector}
+                  >
+                    <option value="" disabled>Этаж</option>
+                    {Array.from(new Set(locations.filter(l => l.rack === rack && l.sector === sector).map(l => l.floor))).sort().map(f => (
+                      <option key={f} value={f}>{f}</option>
+                    ))}
+                  </select>
+
+                  <select 
+                    className="input-field appearance-none py-2 px-3 text-sm"
+                    value={pos}
+                    onChange={e => setPos(e.target.value)}
+                    disabled={!floor}
+                  >
+                    <option value="" disabled>Позиция</option>
+                    {locations.filter(l => l.rack === rack && l.sector === sector && l.floor === floor).map(p => {
+                      const locInventory = inventory.filter(i => i.locationId === p.id && i.quantity > 0);
+                      const isCurrentProductHere = locInventory.some(i => i.productId === product.id);
+                      const isOtherProductHere = locInventory.some(i => i.productId !== product.id);
+                      
+                      let statusText = '';
+                      if (isCurrentProductHere) statusText = ' (Тек)';
+                      else if (isOtherProductHere) statusText = ' (Занят)';
+
+                      const isDisabled = type === 'incoming' && isOtherProductHere;
+
+                      return (
+                        <option key={p.id} value={p.position} disabled={isDisabled}>
+                          {p.position}{statusText}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
                 {type === 'outgoing' && (
                   <div className="mt-2 text-xs text-muted">
                     Текущий баланс: {totalBalance} шт.
