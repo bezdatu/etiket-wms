@@ -50,9 +50,7 @@ const initialLocations: Location[] = generateLocations();
 const initialProducts: Product[] = [];
 
 // Initial demo inventory — loc_1 = R1-S1-F1-P1
-const initialInventory: InventoryBalance[] = [
-  { id: 'inv_1', productId: 'prod_1', locationId: 'loc_1', quantity: 50 },
-];
+const initialInventory: InventoryBalance[] = [];
 
 export const useStore = create<AppState>()(
   persist(
