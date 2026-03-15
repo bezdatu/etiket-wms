@@ -47,22 +47,7 @@ const generateLocations = (): Location[] => {
 
 const initialLocations: Location[] = generateLocations();
 
-const initialProducts: Product[] = [
-  { 
-    id: 'prod_1', 
-    name: 'Industrial Widget A', 
-    description: 'A heavy-duty industrial widget.', 
-    photoUrl: 'https://picsum.photos/seed/etiket-prod-A/200/200',
-    labelSignature: 'sig_a' 
-  },
-  { 
-    id: 'prod_2', 
-    name: 'Industrial Widget B', 
-    description: 'Looks very similar to A but has different threading.', 
-    photoUrl: 'https://picsum.photos/seed/etiket-prod-B/200/200',
-    labelSignature: 'sig_b' 
-  },
-];
+const initialProducts: Product[] = [];
 
 // Initial demo inventory — loc_1 = R1-S1-F1-P1
 const initialInventory: InventoryBalance[] = [

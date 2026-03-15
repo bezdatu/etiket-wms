@@ -104,16 +104,21 @@ const CameraCapture = () => {
       const detectedDescription = lines.slice(1, 4).join(' ') || 'Распознано с этикетки';
       const confidence = data.confidence / 100;
 
-      // Try to match to existing product (case-insensitive)
-      const existingProduct = products.find(p =>
-        p.name.toLowerCase().includes(detectedName.toLowerCase().slice(0, 6)) ||
-        detectedName.toLowerCase().includes(p.name.toLowerCase().slice(0, 6))
-      );
+      // STRICT MATCHING: 
+      // 1. Don't match "Неизвестный товар"
+      // 2. Require at least 4 characters match or substantial include
+      const existingProduct = (detectedName === 'Неизвестный товар' || detectedName.length < 3)
+        ? null
+        : products.find(p => {
+          const n1 = p.name.toLowerCase();
+          const n2 = detectedName.toLowerCase();
+          return n1 === n2 || n1.includes(n2) || n2.includes(n1);
+        });
 
       const resultProduct: Product = {
         id: existingProduct?.id || `prod_ocr_${Date.now()}`,
-        name: detectedName,
-        description: detectedDescription,
+        name: existingProduct?.name || detectedName,
+        description: existingProduct?.description || detectedDescription,
         photoUrl: existingProduct?.photoUrl || '',
         labelSignature: existingProduct?.labelSignature || `ocr_${Date.now()}`
       };
@@ -216,6 +221,8 @@ const ScanResult = () => {
 
   const [quantity, setQuantity] = useState(1);
   const [manualMode, setManualMode] = useState(false);
+  const [editName, setEditName] = useState(product.name);
+  const [editDesc, setEditDesc] = useState(product.description);
   const [rack, setRack] = useState('');
   const [sector, setSector] = useState('');
   const [floor, setFloor] = useState('');
@@ -225,15 +232,24 @@ const ScanResult = () => {
   useEffect(() => {
     let targetLocId = '';
     const productInv = inventory.filter(i => i.productId === product.id && i.quantity > 0);
-    if (productInv.length > 0) {
+    
+    if (type === 'outgoing') {
       // For outgoing, pick the location with this product
-      targetLocId = productInv[0].locationId;
+      if (productInv.length > 0) {
+        targetLocId = productInv[0].locationId;
+      }
     } else if (type === 'incoming') {
-      // For incoming, pick the first completely empty location
-      const freeLoc = locations.find(l => {
-        return !inventory.some(i => i.locationId === l.id && i.quantity > 0);
-      });
-      if (freeLoc) targetLocId = freeLoc.id;
+      // For incoming: 
+      // 1. If we already have this product in stock, suggest SAME location to group them
+      if (productInv.length > 0) {
+        targetLocId = productInv[0].locationId;
+      } else {
+        // 2. If new product or not in stock, pick first COMPLETELY empty location
+        const freeLoc = locations.find(l => {
+          return !inventory.some(i => i.locationId === l.id && i.quantity > 0);
+        });
+        if (freeLoc) targetLocId = freeLoc.id;
+      }
     }
 
     if (targetLocId) {
@@ -255,14 +271,14 @@ const ScanResult = () => {
     if (!selectedLocId || quantity <= 0) return;
 
     if (isNewProduct) {
-      addProduct(product);
+      addProduct({ ...product, name: editName, description: editDesc });
     }
 
     // Update product info from OCR on incoming scan (overwrites mock names/descriptions)
     if (type === 'incoming') {
       updateProduct(product.id, { 
-        name: product.name,
-        description: product.description,
+        name: editName,
+        description: editDesc,
         photoUrl: capturedPhoto || product.photoUrl 
       });
     }
@@ -320,12 +336,24 @@ const ScanResult = () => {
               <img src={capturedPhoto} alt="Скан" className="w-full h-full object-cover" />
             ) : <Package className="m-auto mt-6 text-slate-600" size={40} />}
           </div>
-          <div>
-            <h3 className="text-xl font-bold leading-tight">{product.name}</h3>
-            <p className="text-sm text-muted mt-1">{product.description}</p>
-            {product.barcode && (
-              <p className="text-xs font-mono bg-slate-800 px-2 py-1 mt-2 rounded inline-block">B/C: {product.barcode}</p>
-            )}
+          <div className="flex-1 space-y-3">
+            <div>
+              <label className="text-[10px] text-primary-400 font-bold uppercase mb-1 block">Название товара</label>
+              <input 
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-sm font-bold focus:border-primary-500 outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-muted font-bold uppercase mb-1 block">Описание</label>
+              <textarea 
+                value={editDesc}
+                onChange={(e) => setEditDesc(e.target.value)}
+                rows={2}
+                className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-xs text-muted focus:border-primary-500 outline-none"
+              />
+            </div>
           </div>
         </div>
         
