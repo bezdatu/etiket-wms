@@ -91,14 +91,14 @@ const CameraCapture = () => {
       });
 
       // Run Tesseract OCR on the top crop
-      const worker = await createWorker('rus+eng');
-      const { data } = await worker.recognize(croppedDataUrl);
+      const worker = await (createWorker as any)('rus+eng');
+      const { data } = (await worker.recognize(croppedDataUrl)) as any;
       await worker.terminate();
 
       // Extract first non-empty line with enough chars as the product name
-      const lines = data.lines
-        .map(l => l.text.trim().replace(/[«»""'']/g, '').trim())
-        .filter(t => t.length >= 3);
+      const lines: string[] = (data.lines || [])
+        .map((l: any) => l.text.trim().replace(/[«»""'']/g, '').trim())
+        .filter((t: string) => t.length >= 3);
 
       const detectedName = lines[0] || 'Неизвестный товар';
       const detectedDescription = lines.slice(1, 4).join(' ') || 'Распознано с этикетки';
@@ -127,8 +127,8 @@ const CameraCapture = () => {
           isNewProduct: !existingProduct,
           ocrLines: lines.slice(0, 5)
         }
-      });
-    } catch (err) {
+      } as any);
+    } catch (err: any) {
       console.error('OCR error:', err);
       setScanStatus('Ошибка распознавания');
       setTimeout(() => { setIsScanning(false); setScanStatus(''); }, 2000);
