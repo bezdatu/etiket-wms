@@ -1,10 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate, Routes, Route, useLocation } from 'react-router-dom';
 import { useStore } from '../store';
-import { Camera, CheckCircle2, AlertTriangle, ArrowRight, X, Package, ScanLine } from 'lucide-react';
+import { Camera, CheckCircle2, ArrowRight, X, Package, ScanLine } from 'lucide-react';
 import { Product } from '../types';
 import Webcam from 'react-webcam';
-import { createWorker } from 'tesseract.js';
 
 export const ScanFlow = () => {
   return (
@@ -36,7 +35,6 @@ const ScanModeSelect = () => {
         </div>
         <span className="text-2xl font-bold">Принять товар</span>
       </button>
-
       <button 
         onClick={() => navigate('camera', { state: { type: 'outgoing' } })}
         className="w-full card p-8 flex flex-col items-center justify-center gap-4 bg-gradient-to-br from-red-900/50 to-red-800/20 border-red-500/30 hover:border-red-500 transition-colors"
@@ -56,7 +54,6 @@ const CameraCapture = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const opType = location.state?.type || 'incoming';
-  const { products } = useStore();
   
   const [isScanning, setIsScanning] = useState(false);
   const [scanStatus, setScanStatus] = useState('');
@@ -73,72 +70,26 @@ const CameraCapture = () => {
       return;
     }
 
-    try {
-      setScanStatus('Распознавание текста...');
+    setScanStatus('Обработка...');
 
-      // Crop top 35% of image (where product name is) using canvas
-      const croppedDataUrl = await new Promise<string>((resolve) => {
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          canvas.width = img.width;
-          canvas.height = Math.floor(img.height * 0.35);
-          const ctx = canvas.getContext('2d')!;
-          ctx.drawImage(img, 0, 0, img.width, canvas.height, 0, 0, canvas.width, canvas.height);
-          resolve(canvas.toDataURL('image/jpeg', 0.9));
-        };
-        img.src = imageSrc;
-      });
+    const resultProduct: Product = {
+      id: `prod_${Date.now()}`,
+      name: '',
+      description: '',
+      photoUrl: '',
+      labelSignature: `manual_${Date.now()}`
+    };
 
-      // Run Tesseract OCR on the top crop
-      const worker = await (createWorker as any)('rus+eng');
-      const { data } = (await worker.recognize(croppedDataUrl)) as any;
-      await worker.terminate();
-
-      // Extract first non-empty line with enough chars as the product name
-      const lines: string[] = (data.lines || [])
-        .map((l: any) => l.text.trim().replace(/[«»""'']/g, '').trim())
-        .filter((t: string) => t.length >= 3);
-
-      const detectedName = lines[0] || 'Неизвестный товар';
-      const detectedDescription = lines.slice(1, 4).join(' ') || 'Распознано с этикетки';
-      const confidence = data.confidence / 100;
-
-      // STRICT MATCHING: 
-      // 1. Don't match "Неизвестный товар"
-      // 2. Require at least 4 characters match or substantial include
-      const existingProduct = (detectedName === 'Неизвестный товар' || detectedName.length < 3)
-        ? null
-        : products.find(p => {
-          const n1 = p.name.toLowerCase();
-          const n2 = detectedName.toLowerCase();
-          return n1 === n2 || n1.includes(n2) || n2.includes(n1);
-        });
-
-      const resultProduct: Product = {
-        id: existingProduct?.id || `prod_ocr_${Date.now()}`,
-        name: existingProduct?.name || detectedName,
-        description: existingProduct?.description || detectedDescription,
-        photoUrl: existingProduct?.photoUrl || '',
-        labelSignature: existingProduct?.labelSignature || `ocr_${Date.now()}`
-      };
-
-      navigate('/scan/result', {
-        state: {
-          type: opType,
-          prediction: resultProduct,
-          confidence: Math.min(0.99, Math.max(0.4, confidence)),
-          capturedPhoto: imageSrc,
-          isNewProduct: !existingProduct,
-          ocrLines: lines.slice(0, 5)
-        }
-      } as any);
-    } catch (err: any) {
-      console.error('OCR error:', err);
-      setScanStatus('Ошибка распознавания');
-      setTimeout(() => { setIsScanning(false); setScanStatus(''); }, 2000);
-    }
-  }, [navigate, opType, products]);
+    navigate('/scan/result', {
+      state: {
+        type: opType,
+        prediction: resultProduct,
+        confidence: 1,
+        capturedPhoto: imageSrc,
+        isNewProduct: true
+      }
+    } as any);
+  }, [navigate, opType]);
 
   return (
     <div className="h-[80vh] flex flex-col">
@@ -313,16 +264,14 @@ const ScanResult = () => {
         </button>
       </header>
 
-      {/* Confidence badge */}
-      <div className={`p-4 rounded-xl flex items-start gap-3 ${isHighConfidence ? 'bg-primary-500/10 border border-primary-500/30' : 'bg-orange-500/10 border border-orange-500/30'}`}>
-        {isHighConfidence ? <CheckCircle2 className="text-primary-500 mt-0.5" /> : <AlertTriangle className="text-orange-500 mt-0.5" />}
+      {/* Verification status */}
+      <div className={`p-4 rounded-xl flex items-start gap-3 bg-primary-500/10 border border-primary-500/30`}>
+        <CheckCircle2 className="text-primary-500 mt-0.5" />
         <div>
-          <p className={`font-bold ${isHighConfidence ? 'text-primary-500' : 'text-orange-400'}`}>
-            {isHighConfidence ? 'Распознано успешно' : 'Низкая уверенность'} ({(confidence * 100).toFixed(0)}%)
+          <p className={`font-bold text-primary-500`}>
+            Захват фото выполнен
           </p>
-          {!isHighConfidence && (
-            <p className="text-xs text-muted mt-1">Проверьте результат — этикетки могут быть очень похожи.</p>
-          )}
+          <p className="text-xs text-muted mt-1">Введите данные товара вручную ниже.</p>
         </div>
       </div>
 
