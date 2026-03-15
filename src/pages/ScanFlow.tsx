@@ -156,7 +156,10 @@ const ScanResult = () => {
     if (productInv.length > 0) {
       setSelectedLocId(productInv[0].locationId);
     } else if (type === 'incoming') {
-      const freeLoc = locations.find(l => !l.isOccupied);
+      const freeLoc = locations.find(l => {
+        const locInv = inventory.filter(i => i.locationId === l.id && i.quantity > 0);
+        return locInv.length === 0; // strictly empty
+      });
       if (freeLoc) setSelectedLocId(freeLoc.id);
     }
   }, [product.id, inventory, locations, type]);
@@ -247,10 +250,19 @@ const ScanResult = () => {
                 >
                   <option value="" disabled>Выберите локацию</option>
                   {locations.map(loc => {
-                    const isCurrentProductHere = inventory.some(i => i.locationId === loc.id && i.productId === product.id);
+                    const locInventory = inventory.filter(i => i.locationId === loc.id && i.quantity > 0);
+                    const isCurrentProductHere = locInventory.some(i => i.productId === product.id);
+                    const isOtherProductHere = locInventory.some(i => i.productId !== product.id);
+                    
+                    let statusText = '(Свободно)';
+                    if (isCurrentProductHere) statusText = '(Текущая)';
+                    else if (isOtherProductHere) statusText = '(Занято др. товаром)';
+
+                    const isDisabled = type === 'incoming' && isOtherProductHere;
+
                     return (
-                      <option key={loc.id} value={loc.id}>
-                        {loc.code} {loc.isOccupied ? (isCurrentProductHere ? '(Текущая)' : '(Занято)') : '(Свободно)'}
+                      <option key={loc.id} value={loc.id} disabled={isDisabled}>
+                        {loc.code} {statusText}
                       </option>
                     );
                   })}

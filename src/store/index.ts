@@ -27,14 +27,14 @@ const initialProducts: Product[] = [
     id: 'prod_1', 
     name: 'Industrial Widget A', 
     description: 'A heavy-duty industrial widget.', 
-    photoUrl: 'https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&q=80&w=200', 
+    photoUrl: 'https://picsum.photos/seed/widgetA/200/200', 
     labelSignature: 'sig_a' 
   },
   { 
     id: 'prod_2', 
     name: 'Industrial Widget B', 
     description: 'Looks very similar to A but has different threading.', 
-    photoUrl: 'https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&q=80&w=200', 
+    photoUrl: 'https://picsum.photos/seed/widgetB/200/200', 
     labelSignature: 'sig_b' 
   },
 ];
@@ -85,7 +85,7 @@ export const useStore = create<AppState>()(
           }
         }
 
-        // Update location occupancy
+        // Update location occupancy (no longer just boolean, we derive it from inventory in UI, but keep for compatibility)
         const newLocations = state.locations.map((loc: Location) => {
           const isLocOccupied = newInventory.some((inv: InventoryBalance) => inv.locationId === loc.id && inv.quantity > 0);
           return { ...loc, isOccupied: isLocOccupied };
