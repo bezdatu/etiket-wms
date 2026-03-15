@@ -20,22 +20,21 @@ interface AppState {
 const generateLocations = (): Location[] => {
   const locs: Location[] = [];
   let idCounter = 1;
-  const racks = ['R1', 'R2', 'R3', 'R4', 'R5'];
-  const sectors = ['S1', 'S2'];
-  const floors = ['F1', 'F2'];
-  const positions = ['P1', 'P2', 'P3', 'P4', 'P5'];
-
-  for (const r of racks) {
-    for (const s of sectors) {
-      for (const f of floors) {
-        for (const p of positions) {
+  for (let r = 1; r <= 10; r++) {
+    for (let s = 1; s <= 10; s++) {
+      for (let f = 1; f <= 5; f++) {
+        for (let p = 1; p <= 3; p++) {
+          const rack = `R${r}`;
+          const sector = `S${s}`;
+          const floor = `F${f}`;
+          const position = `P${p}`;
           locs.push({
             id: `loc_${idCounter++}`,
-            code: `${r}-${s}-${f}-${p}`,
-            rack: r,
-            sector: s,
-            floor: f,
-            position: p,
+            code: `${rack}-${sector}-${floor}-${position}`,
+            rack,
+            sector,
+            floor,
+            position,
             isActive: true,
             isOccupied: false
           });
@@ -65,8 +64,9 @@ const initialProducts: Product[] = [
   },
 ];
 
+// Initial demo inventory — loc_1 = R1-S1-F1-P1
 const initialInventory: InventoryBalance[] = [
-  { id: 'inv_1', productId: 'prod_1', locationId: 'loc_2', quantity: 50 },
+  { id: 'inv_1', productId: 'prod_1', locationId: 'loc_1', quantity: 50 },
 ];
 
 export const useStore = create<AppState>()(
