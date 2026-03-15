@@ -66,7 +66,7 @@ const CameraCapture = () => {
     
     // MOCK LOGIC: Randomly select a product and assign a confidence score
     const randomProduct = products[Math.floor(Math.random() * products.length)];
-    const confidence = Math.random() > 0.3 ? (0.85 + Math.random() * 0.14) : (0.4 + Math.random() * 0.3); // High confidence 70% of time
+    const confidence = Math.random() > 0.3 ? (0.95 + Math.random() * 0.04) : (0.4 + Math.random() * 0.3); // High confidence 70% of time
     
     navigate('/scan/result', { 
       state: { 
@@ -143,7 +143,7 @@ const ScanResult = () => {
 
   const { type, prediction, confidence } = locationState;
   const product: Product = prediction;
-  const isHighConfidence = confidence >= 0.8;
+  const isHighConfidence = confidence >= 0.95;
 
   const [quantity, setQuantity] = useState(1);
   const [selectedLocId, setSelectedLocId] = useState('');
@@ -256,7 +256,7 @@ const ScanResult = () => {
         </div>
       </div>
 
-      <button onClick={handleConfirm} disabled={!selectedLocId || quantity <= 0} className={`btn-primary w-full py-4 text-lg mt-6 ${type === 'incoming' ? 'bg-primary-600 hover:bg-primary-500' : 'bg-red-600 hover:bg-red-500'}`}>
+      <button onClick={handleConfirm} disabled={!selectedLocId || quantity <= 0 || !isHighConfidence} className={`btn-primary w-full py-4 text-lg mt-6 ${type === 'incoming' ? 'bg-primary-600 hover:bg-primary-500' : 'bg-red-600 hover:bg-red-500'} disabled:opacity-50 disabled:cursor-not-allowed`}>
         Подтвердить {type === 'incoming' ? 'Приемку' : 'Выдачу'}
       </button>
 
