@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate, Routes, Route, useLocation } from 'react-router-dom';
 import { useStore } from '../store';
-import { Camera, CheckCircle2, XCircle, AlertTriangle, ArrowRight, X, Package, ScanLine } from 'lucide-react';
+import { Camera, CheckCircle2, AlertTriangle, ArrowRight, X, Package, ScanLine } from 'lucide-react';
 import { Product } from '../types';
 import Webcam from 'react-webcam';
 
