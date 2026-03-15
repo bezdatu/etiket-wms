@@ -144,6 +144,8 @@ const ScanResult = () => {
   const { type, prediction, confidence } = locationState;
   const product: Product = prediction;
   const isHighConfidence = confidence >= 0.95;
+  const totalBalance = inventory.filter(i => i.productId === product.id).reduce((a,c)=>a+c.quantity, 0);
+  const isOutOfStock = type === 'outgoing' && totalBalance === 0;
 
   const [quantity, setQuantity] = useState(1);
   const [selectedLocId, setSelectedLocId] = useState('');
@@ -210,53 +212,61 @@ const ScanResult = () => {
         </div>
         
         <div className="border-t border-slate-700/50 pt-4 mt-4 space-y-4">
-          <div>
-            <label className="text-xs text-muted font-bold uppercase tracking-wider block mb-2">Количество ({type === 'incoming' ? 'Принять' : 'Выдать'})</label>
-            <div className="flex items-center">
-              <button 
-                className="bg-slate-700 hover:bg-slate-600 w-12 h-12 rounded-l-xl text-xl font-bold flex items-center justify-center transition"
-                onClick={() => setQuantity(Math.max(1, quantity - 1))}
-              >-</button>
-              <input 
-                type="number" 
-                className="bg-slate-800 w-full h-12 text-center text-xl font-bold focus:outline-none"
-                value={quantity}
-                onChange={e => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
-              />
-              <button 
-                className="bg-slate-700 hover:bg-slate-600 w-12 h-12 rounded-r-xl text-xl font-bold flex items-center justify-center transition"
-                onClick={() => setQuantity(quantity + 1)}
-              >+</button>
+          {isOutOfStock ? (
+            <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-center">
+              <p className="text-red-500 font-bold">Данного товара нет на складе</p>
             </div>
-          </div>
-
-          <div>
-            <label className="text-xs text-muted font-bold uppercase tracking-wider block mb-2">Локация</label>
-            <select 
-              className="input-field appearance-none"
-              value={selectedLocId}
-              onChange={e => setSelectedLocId(e.target.value)}
-            >
-              <option value="" disabled>Выберите локацию</option>
-              {locations.map(loc => {
-                const isCurrentProductHere = inventory.some(i => i.locationId === loc.id && i.productId === product.id);
-                return (
-                  <option key={loc.id} value={loc.id}>
-                    {loc.code} {loc.isOccupied ? (isCurrentProductHere ? '(Текущая)' : '(Занято)') : '(Свободно)'}
-                  </option>
-                );
-              })}
-            </select>
-            {type === 'outgoing' && (
-              <div className="mt-2 text-xs text-muted">
-                Текущий баланс: {inventory.filter(i => i.productId === product.id).reduce((a,c)=>a+c.quantity,0)} шт.
+          ) : (
+            <>
+              <div>
+                <label className="text-xs text-muted font-bold uppercase tracking-wider block mb-2">Количество ({type === 'incoming' ? 'Принять' : 'Выдать'})</label>
+                <div className="flex items-center">
+                  <button 
+                    className="bg-slate-700 hover:bg-slate-600 w-12 h-12 rounded-l-xl text-xl font-bold flex items-center justify-center transition"
+                    onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                  >-</button>
+                  <input 
+                    type="number" 
+                    className="bg-slate-800 w-full h-12 text-center text-xl font-bold focus:outline-none"
+                    value={quantity}
+                    onChange={e => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                  />
+                  <button 
+                    className="bg-slate-700 hover:bg-slate-600 w-12 h-12 rounded-r-xl text-xl font-bold flex items-center justify-center transition"
+                    onClick={() => setQuantity(quantity + 1)}
+                  >+</button>
+                </div>
               </div>
-            )}
-          </div>
+
+              <div>
+                <label className="text-xs text-muted font-bold uppercase tracking-wider block mb-2">Локация</label>
+                <select 
+                  className="input-field appearance-none"
+                  value={selectedLocId}
+                  onChange={e => setSelectedLocId(e.target.value)}
+                >
+                  <option value="" disabled>Выберите локацию</option>
+                  {locations.map(loc => {
+                    const isCurrentProductHere = inventory.some(i => i.locationId === loc.id && i.productId === product.id);
+                    return (
+                      <option key={loc.id} value={loc.id}>
+                        {loc.code} {loc.isOccupied ? (isCurrentProductHere ? '(Текущая)' : '(Занято)') : '(Свободно)'}
+                      </option>
+                    );
+                  })}
+                </select>
+                {type === 'outgoing' && (
+                  <div className="mt-2 text-xs text-muted">
+                    Текущий баланс: {totalBalance} шт.
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </div>
       </div>
 
-      <button onClick={handleConfirm} disabled={!selectedLocId || quantity <= 0 || !isHighConfidence} className={`btn-primary w-full py-4 text-lg mt-6 ${type === 'incoming' ? 'bg-primary-600 hover:bg-primary-500' : 'bg-red-600 hover:bg-red-500'} disabled:opacity-50 disabled:cursor-not-allowed`}>
+      <button onClick={handleConfirm} disabled={isOutOfStock || !selectedLocId || quantity <= 0 || !isHighConfidence} className={`btn-primary w-full py-4 text-lg mt-6 ${type === 'incoming' ? 'bg-primary-600 hover:bg-primary-500' : 'bg-red-600 hover:bg-red-500'} disabled:opacity-50 disabled:cursor-not-allowed`}>
         Подтвердить {type === 'incoming' ? 'Приемку' : 'Выдачу'}
       </button>
 
