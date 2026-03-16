@@ -166,7 +166,6 @@ const ScanResult = () => {
 
   const { type, prediction, confidence, capturedPhoto, isNewProduct } = locationState;
   const product: Product = prediction;
-  const isHighConfidence = confidence >= 0.95;
   const totalBalance = inventory.filter(i => i.productId === product.id).reduce((a, c) => a + c.quantity, 0);
   const isOutOfStock = type === 'outgoing' && totalBalance === 0;
 
@@ -218,18 +217,23 @@ const ScanResult = () => {
   const selectedLocId = selectedLoc?.id || '';
   const selectedLocCode = selectedLoc?.code || '';
 
+  const [barcode, setBarcode] = useState('');
+
+  const canConfirm = editName.trim().length > 0 && selectedLocId && quantity > 0;
+
   const handleConfirm = () => {
-    if (!selectedLocId || quantity <= 0) return;
+    if (!canConfirm) return;
 
     if (isNewProduct) {
-      addProduct({ ...product, name: editName, description: editDesc });
+      addProduct({ ...product, name: editName, description: editDesc, barcode });
     }
 
-    // Update product info from OCR on incoming scan (overwrites mock names/descriptions)
+    // Update product info on incoming scan
     if (type === 'incoming') {
       updateProduct(product.id, { 
         name: editName,
         description: editDesc,
+        barcode,
         photoUrl: capturedPhoto || product.photoUrl 
       });
     }
@@ -285,23 +289,38 @@ const ScanResult = () => {
               <img src={capturedPhoto} alt="Скан" className="w-full h-full object-cover" />
             ) : <Package className="m-auto mt-6 text-slate-600" size={40} />}
           </div>
-          <div className="flex-1 space-y-3">
+          <div className="flex-1 space-y-4">
             <div>
-              <label className="text-[10px] text-primary-400 font-bold uppercase mb-1 block">Название товара</label>
+              <label className="text-[10px] text-primary-400 font-bold uppercase tracking-widest mb-1.5 block">Название товара *</label>
               <input 
+                placeholder="Напр: Oreo Original 228g"
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-sm font-bold focus:border-primary-500 outline-none"
+                className="w-full bg-slate-900/50 border border-slate-700/50 rounded-lg px-3 py-2 text-base font-bold focus:border-primary-500 focus:bg-slate-900 outline-none transition-all placeholder:text-slate-600"
               />
             </div>
-            <div>
-              <label className="text-[10px] text-muted font-bold uppercase mb-1 block">Описание</label>
-              <textarea 
-                value={editDesc}
-                onChange={(e) => setEditDesc(e.target.value)}
-                rows={2}
-                className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-xs text-muted focus:border-primary-500 outline-none"
-              />
+
+            <div className="grid grid-cols-1 gap-3">
+              <div>
+                <label className="text-[10px] text-muted font-bold uppercase tracking-widest mb-1.5 block">Штрих-код / Артикул</label>
+                <input 
+                  placeholder="000000000000"
+                  value={barcode}
+                  onChange={(e) => setBarcode(e.target.value)}
+                  className="w-full bg-slate-900/50 border border-slate-700/50 rounded-lg px-3 py-2 text-sm font-mono focus:border-primary-500 focus:bg-slate-900 outline-none transition-all placeholder:text-slate-600"
+                />
+              </div>
+              
+              <div>
+                <label className="text-[10px] text-muted font-bold uppercase tracking-widest mb-1.5 block">Описание</label>
+                <textarea 
+                  placeholder="Дополнительная информация..."
+                  value={editDesc}
+                  onChange={(e) => setEditDesc(e.target.value)}
+                  rows={2}
+                  className="w-full bg-slate-900/50 border border-slate-700/50 rounded-lg px-3 py-2 text-xs text-muted focus:border-primary-500 focus:bg-slate-900 outline-none transition-all placeholder:text-slate-600 resize-none"
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -427,15 +446,20 @@ const ScanResult = () => {
         </div>
       </div>
 
-      <button
-        onClick={handleConfirm}
-        disabled={isOutOfStock || !selectedLocId || quantity <= 0 || !isHighConfidence}
-        className={`btn-primary w-full py-4 text-lg mt-6 ${
-          type === 'incoming' ? 'bg-primary-600 hover:bg-primary-500' : 'bg-red-600 hover:bg-red-500'
-        } disabled:opacity-50 disabled:cursor-not-allowed`}
-      >
-        Подтвердить {type === 'incoming' ? 'Приёмку' : 'Выдачу'}
-      </button>
+      <div className="fixed bottom-0 left-0 right-0 p-4 bg-slate-900/80 backdrop-blur-lg border-t border-slate-800 safe-bottom">
+        <button
+          onClick={handleConfirm}
+          disabled={isOutOfStock || !canConfirm}
+          className={`w-full py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95 ${
+            canConfirm && !isOutOfStock
+            ? (type === 'incoming' ? 'bg-gradient-to-r from-primary-600 to-primary-500' : 'bg-gradient-to-r from-red-600 to-red-500') + ' text-white shadow-primary-500/20' 
+            : 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-50'
+          }`}
+        >
+          {type === 'incoming' ? <ArrowRight size={24} /> : <ArrowRight className="transform -rotate-180" size={24} />}
+          Подтвердить {type === 'incoming' ? 'Приёмку' : 'Выдачу'}
+        </button>
+      </div>
 
       <style>{`
         @keyframes scan {
