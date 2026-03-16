@@ -15,51 +15,95 @@ import Webcam from 'react-webcam';
  * 3. Grayscale.
  * 4. Compare horizontally (adjacent pixels).
  */
-const getVisualHash = (imageSrc: string): Promise<string> => {
+const getVisualHash = (imageSrc: string): Promise<{ hash: string, focusedImage: string }> => {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
-      // 1. CROP: Focus on center 38% (tighter focus on label)
-      const cropW = img.width * 0.38;
-      const cropH = img.height * 0.38;
-      const x = (img.width - cropW) / 2;
-      const y = (img.height - cropH) / 2;
+      // 1. Initial Sample: 60% center crop (Wide guide)
+      const sampleSize = Math.min(img.width, img.height) * 0.6;
+      const sx = (img.width - sampleSize) / 2;
+      const sy = (img.height - sampleSize) / 2;
 
-      const sizeW = 33; // for 32 bits horizontally
-      const sizeH = 32;
-      const canvas = document.createElement('canvas');
-      canvas.width = sizeW;
-      canvas.height = sizeH;
-      const ctx = canvas.getContext('2d')!;
-      ctx.drawImage(img, x, y, cropW, cropH, 0, 0, sizeW, sizeH);
-      const data = ctx.getImageData(0, 0, sizeW, sizeH).data;
+      // Draw to a logic-processing canvas (128x128)
+      const procSize = 128;
+      const procCanvas = document.createElement('canvas');
+      procCanvas.width = procSize;
+      procCanvas.height = procSize;
+      const pctx = procCanvas.getContext('2d')!;
+      pctx.drawImage(img, sx, sy, sampleSize, sampleSize, 0, 0, procSize, procSize);
       
-      // 2. GRAYSCALE & NORMALIZATION
-      const grayscale = new Uint8Array(sizeW * sizeH);
+      const pData = pctx.getImageData(0, 0, procSize, procSize).data;
+      const grayscale = new Uint8Array(procSize * procSize);
+      for (let i = 0; i < pData.length; i += 4) {
+        grayscale[i/4] = (pData[i] * 0.299 + pData[i+1] * 0.587 + pData[i+2] * 0.114);
+      }
+
+      // 2. "LABEL SNAP": Find sub-region with highest visual complexity
+      const windowSize = 64; 
+      const step = 4;
+      let maxActivity = -1;
+      let snapX = (procSize - windowSize) / 2;
+      let snapY = (procSize - windowSize) / 2;
+
+      for (let y = 0; y <= procSize - windowSize; y += step) {
+        for (let x = 0; x <= procSize - windowSize; x += step) {
+          let activity = 0;
+          for (let row = 0; row < windowSize; row += 4) {
+            for (let col = 0; col < windowSize - 4; col += 4) {
+              const idx = (y + row) * procSize + (x + col);
+              activity += Math.abs(grayscale[idx] - grayscale[idx + 1]);
+            }
+          }
+          if (activity > maxActivity) {
+            maxActivity = activity;
+            snapX = x;
+            snapY = y;
+          }
+        }
+      }
+
+      // 3. FINAL HASH: Resize "snapped" sub-region to 33x32
+      const sizeW = 33;
+      const sizeH = 32;
+      const finalCanvas = document.createElement('canvas');
+      finalCanvas.width = sizeW;
+      finalCanvas.height = sizeH;
+      const fctx = finalCanvas.getContext('2d')!;
+      
+      fctx.drawImage(procCanvas, snapX, snapY, windowSize, windowSize, 0, 0, sizeW, sizeH);
+      
+      // Also capture a nice "high-res" version of the crop for display (256x256)
+      const displayCanvas = document.createElement('canvas');
+      displayCanvas.width = 256;
+      displayCanvas.height = 256;
+      const dctx = displayCanvas.getContext('2d')!;
+      dctx.drawImage(procCanvas, snapX, snapY, windowSize, windowSize, 0, 0, 256, 256);
+      const focusedImage = displayCanvas.toDataURL('image/jpeg', 0.8);
+
+      const finalData = fctx.getImageData(0, 0, sizeW, sizeH).data;
+      const finalGrayscale = new Uint8Array(sizeW * sizeH);
       let min = 255, max = 0;
-      for (let i = 0; i < data.length; i += 4) {
-        const val = (data[i] * 0.299 + data[i+1] * 0.587 + data[i+2] * 0.114);
-        grayscale[i/4] = val;
+      for (let i = 0; i < finalData.length; i += 4) {
+        const val = (finalData[i] * 0.299 + finalData[i+1] * 0.587 + finalData[i+2] * 0.114);
+        finalGrayscale[i/4] = val;
         if (val < min) min = val;
         if (val > max) max = val;
       }
       
-      // Min-Max stretching (normalization)
       const range = (max - min) || 1;
-      for (let i = 0; i < grayscale.length; i++) {
-        grayscale[i] = ((grayscale[i] - min) / range) * 255;
+      for (let i = 0; i < finalGrayscale.length; i++) {
+        finalGrayscale[i] = ((finalGrayscale[i] - min) / range) * 255;
       }
       
-      // 3. GENERATE DHASH
       let hash = "";
       for (let row = 0; row < sizeH; row++) {
         for (let col = 0; col < sizeW - 1; col++) {
-          const left = grayscale[row * sizeW + col];
-          const right = grayscale[row * sizeW + col + 1];
+          const left = finalGrayscale[row * sizeW + col];
+          const right = finalGrayscale[row * sizeW + col + 1];
           hash += left > right ? "1" : "0";
         }
       }
-      resolve(hash);
+      resolve({ hash, focusedImage });
     };
     img.src = imageSrc;
   });
@@ -152,9 +196,8 @@ const CameraCapture = () => {
     await new Promise(r => setTimeout(r, 100));
 
     try {
-      // Precision hash using center crop
-      const currentHash = await getVisualHash(imageSrc);
-      console.log('Generated hash:', currentHash);
+      // Intelligent Focus Hash (Google Lens style centering)
+      const { hash: currentHash, focusedImage } = await getVisualHash(imageSrc);
       
       let bestMatch = null;
       let minDistance = 1.0;
@@ -192,7 +235,7 @@ const CameraCapture = () => {
           type: opType,
           prediction: isMatch ? bestMatch : resultProduct,
           confidence,
-          capturedPhoto: imageSrc,
+          capturedPhoto: focusedImage, // Showing the "focused" version
           isNewProduct: !isMatch,
           debugDistance: minDistance, // Closest match distance
           bestMatchName: bestMatch?.name
