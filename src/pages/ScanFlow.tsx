@@ -19,21 +19,21 @@ const getVisualHash = (imageSrc: string): Promise<string> => {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
-      // 1. CROP: The scanner guide is a 64x64px box centered in a (~80vh) container.
-      // We take the center 50% square of the image to be safe.
-      const cropSize = Math.min(img.width, img.height) * 0.5;
-      const x = (img.width - cropSize) / 2;
-      const y = (img.height - cropSize) / 2;
+      // 1. CROP: Focus on the center 40% of the image (more likely to be the label)
+      const cropWidth = img.width * 0.4;
+      const cropHeight = img.height * 0.4;
+      const x = (img.width - cropWidth) / 2;
+      const y = (img.height - cropHeight) / 2;
 
-      const sizeW = 9;
-      const sizeH = 8;
+      const sizeW = 33; // 33 for 32 bits horizontally
+      const sizeH = 32;
       const canvas = document.createElement('canvas');
       canvas.width = sizeW;
       canvas.height = sizeH;
       const ctx = canvas.getContext('2d')!;
       
       // Draw cropped and resized
-      ctx.drawImage(img, x, y, cropSize, cropSize, 0, 0, sizeW, sizeH);
+      ctx.drawImage(img, x, y, cropWidth, cropHeight, 0, 0, sizeW, sizeH);
       const data = ctx.getImageData(0, 0, sizeW, sizeH).data;
       
       const grayscale = new Uint8Array(sizeW * sizeH);
@@ -138,6 +138,9 @@ const CameraCapture = () => {
 
     setScanStatus('Распознавание...');
 
+    // Small delay to allow camera focus/auto-exposure to stabilize
+    await new Promise(r => setTimeout(r, 100));
+
     try {
       // Precision hash using center crop
       const currentHash = await getVisualHash(imageSrc);
@@ -145,7 +148,7 @@ const CameraCapture = () => {
       
       let bestMatch = null;
       let minDistance = 1.0;
-      const THRESHOLD = 0.22; // ~22% difference allowed for dHash (more flexible)
+      const THRESHOLD = 0.28; // Higher resolution allows slightly higher threshold percentage (approx ~286 bits difference)
 
       for (const p of products) {
         if (!p.labelSignature) continue;
@@ -362,13 +365,21 @@ const ScanResult = () => {
       </header>
 
       {/* Verification status */}
-      <div className={`p-4 rounded-xl flex items-start gap-3 bg-primary-500/10 border border-primary-500/30`}>
-        <CheckCircle2 className="text-primary-500 mt-0.5" />
+      <div className={`p-4 rounded-xl flex items-start gap-3 ${!isNewProduct ? 'bg-primary-500/20 border-primary-500' : 'bg-primary-500/10 border-primary-500/30'} border transition-all`}>
+        {!isNewProduct ? (
+          <Package className="text-primary-500 mt-0.5" />
+        ) : (
+          <CheckCircle2 className="text-primary-500 mt-0.5" />
+        )}
         <div>
-          <p className={`font-bold text-primary-500`}>
-            Захват фото выполнен
+          <p className="font-bold text-primary-500">
+            {!isNewProduct ? 'Товар узнан' : 'Захват фото выполнен'}
           </p>
-          <p className="text-xs text-muted mt-1">Введите данные товара вручную ниже.</p>
+          <p className="text-xs text-muted mt-1">
+            {!isNewProduct 
+              ? 'Данные автоматически подгружены из каталога.' 
+              : 'Введите данные товара вручную ниже.'}
+          </p>
         </div>
       </div>
 
