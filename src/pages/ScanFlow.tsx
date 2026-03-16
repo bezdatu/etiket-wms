@@ -8,39 +8,46 @@ import Webcam from 'react-webcam';
 // --- Visual Identification Utilities ---
 
 /**
- * Generates an Average Hash (perceptual hash) from a canvas/image.
- * 1. Resizes to 8x8.
- * 2. Grayscale.
- * 3. Compares to average color.
+ * Generates a Difference Hash (dHash) from a canvas/image.
+ * Robust to lighting and contrast changes.
+ * 1. Precision crop to recognition zone (center square).
+ * 2. Resize to 9x8.
+ * 3. Grayscale.
+ * 4. Compare horizontally (adjacent pixels).
  */
-const getAverageHash = (imageSrc: string): Promise<string> => {
+const getVisualHash = (imageSrc: string): Promise<string> => {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
-      const size = 16; // 16x16 hash (256 bits)
+      // 1. CROP: The scanner guide is a 64x64px box centered in a (~80vh) container.
+      // We take the center 50% square of the image to be safe.
+      const cropSize = Math.min(img.width, img.height) * 0.5;
+      const x = (img.width - cropSize) / 2;
+      const y = (img.height - cropSize) / 2;
+
+      const sizeW = 9;
+      const sizeH = 8;
       const canvas = document.createElement('canvas');
-      canvas.width = size;
-      canvas.height = size;
+      canvas.width = sizeW;
+      canvas.height = sizeH;
       const ctx = canvas.getContext('2d')!;
       
-      // Draw resized
-      ctx.drawImage(img, 0, 0, size, size);
-      const data = ctx.getImageData(0, 0, size, size).data;
+      // Draw cropped and resized
+      ctx.drawImage(img, x, y, cropSize, cropSize, 0, 0, sizeW, sizeH);
+      const data = ctx.getImageData(0, 0, sizeW, sizeH).data;
       
-      let total = 0;
-      const grayscale = new Uint8Array(size * size);
-      
+      const grayscale = new Uint8Array(sizeW * sizeH);
       for (let i = 0; i < data.length; i += 4) {
-        // Simple grayscale (R+G+B)/3
-        const avg = (data[i] + data[i+1] + data[i+2]) / 3;
-        grayscale[i/4] = avg;
-        total += avg;
+        grayscale[i/4] = (data[i] * 0.299 + data[i+1] * 0.587 + data[i+2] * 0.114);
       }
       
-      const mean = total / (size * size);
       let hash = "";
-      for (let i = 0; i < grayscale.length; i++) {
-        hash += grayscale[i] >= mean ? "1" : "0";
+      for (let row = 0; row < sizeH; row++) {
+        for (let col = 0; col < sizeW - 1; col++) {
+          const left = grayscale[row * sizeW + col];
+          const right = grayscale[row * sizeW + col + 1];
+          hash += left > right ? "1" : "0";
+        }
       }
       resolve(hash);
     };
@@ -50,10 +57,9 @@ const getAverageHash = (imageSrc: string): Promise<string> => {
 
 /**
  * Calculates Hamming distance between two binary hash strings.
- * Lower distance means higher similarity.
  */
 const getHammingDistance = (h1: string, h2: string): number => {
-  if (h1.length !== h2.length) return 1.0;
+  if (!h1 || !h2 || h1.length !== h2.length) return 1.0;
   let dist = 0;
   for (let i = 0; i < h1.length; i++) {
     if (h1[i] !== h2[i]) dist++;
@@ -133,18 +139,18 @@ const CameraCapture = () => {
     setScanStatus('Распознавание...');
 
     try {
-      // 1. Crop the recognition zone (center 64x64 relative to viewfinder box)
-      // Visual box is roughly 64/80 width if full screen. Let's just use center crop.
-      const currentHash = await getAverageHash(imageSrc);
+      // Precision hash using center crop
+      const currentHash = await getVisualHash(imageSrc);
+      console.log('Generated hash:', currentHash);
       
-      // 2. Search for matches
       let bestMatch = null;
       let minDistance = 1.0;
-      const THRESHOLD = 0.15; // 15% difference allowed
+      const THRESHOLD = 0.22; // ~22% difference allowed for dHash (more flexible)
 
       for (const p of products) {
         if (!p.labelSignature) continue;
         const dist = getHammingDistance(currentHash, p.labelSignature);
+        console.log(`Checking match for ${p.name}: dist=${dist.toFixed(3)}`);
         if (dist < minDistance) {
           minDistance = dist;
           bestMatch = p;
@@ -152,7 +158,7 @@ const CameraCapture = () => {
       }
 
       const isMatch = bestMatch && minDistance < THRESHOLD;
-      const confidence = isMatch ? (1 - minDistance) : 0.5;
+      const confidence = isMatch ? (1 - (minDistance / THRESHOLD)) * 0.5 + 0.5 : 0.5;
 
       const resultProduct: Product = isMatch ? bestMatch : {
         id: `prod_${Date.now()}`,
@@ -304,7 +310,7 @@ const ScanResult = () => {
   const selectedLocId = selectedLoc?.id || '';
   const selectedLocCode = selectedLoc?.code || '';
 
-  const [barcode, setBarcode] = useState('');
+  const [barcode, setBarcode] = useState(product.barcode || '');
 
   const canConfirm = editName.trim().length > 0 && selectedLocId && quantity > 0;
 
