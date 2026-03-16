@@ -25,8 +25,8 @@ const getVisualHash = (imageSrc: string): Promise<string> => {
       const x = (img.width - cropW) / 2;
       const y = (img.height - cropH) / 2;
 
-      const sizeW = 65; // for 64 bits horizontally
-      const sizeH = 64;
+      const sizeW = 33; // for 32 bits horizontally
+      const sizeH = 32;
       const canvas = document.createElement('canvas');
       canvas.width = sizeW;
       canvas.height = sizeH;
@@ -158,7 +158,7 @@ const CameraCapture = () => {
       
       let bestMatch = null;
       let minDistance = 1.0;
-      const THRESHOLD = 0.25; // 25% difference allowed for 64x64 dHash (Robust threshold)
+      const THRESHOLD = 0.28; // ~28% difference allowed (Optimized for 32x32 stability)
 
       for (const p of products) {
         if (!p.labelSignature) continue;
@@ -171,9 +171,10 @@ const CameraCapture = () => {
       }
 
       const isMatch = bestMatch && minDistance < THRESHOLD;
+      // Precision for match vs mismatch
       const confidence = isMatch ? (1 - (minDistance / THRESHOLD)) * 0.5 + 0.5 : 0.5;
 
-      const resultProduct: Product = isMatch ? bestMatch : {
+      const resultProduct: Product = {
         id: `prod_${Date.now()}`,
         name: '',
         description: '',
@@ -184,10 +185,12 @@ const CameraCapture = () => {
       navigate('/scan/result', {
         state: {
           type: opType,
-          prediction: resultProduct,
+          prediction: isMatch ? bestMatch : resultProduct,
           confidence,
           capturedPhoto: imageSrc,
-          isNewProduct: !isMatch
+          isNewProduct: !isMatch,
+          debugDistance: minDistance, // Pass for debug UI
+          bestMatchName: bestMatch?.name
         }
       } as any);
     } catch (err) {
@@ -270,7 +273,7 @@ const ScanResult = () => {
     return null;
   }
 
-  const { type, prediction, confidence, capturedPhoto, isNewProduct } = locationState;
+  const { type, prediction, confidence, capturedPhoto, isNewProduct, debugDistance, bestMatchName } = locationState;
   const product: Product = prediction;
   const totalBalance = inventory.filter(i => i.productId === product.id).reduce((a, c) => a + c.quantity, 0);
   const isOutOfStock = type === 'outgoing' && totalBalance === 0;
@@ -385,11 +388,18 @@ const ScanResult = () => {
           <p className="font-bold text-primary-500">
             {!isNewProduct ? 'Товар узнан' : 'Захват фото выполнен'}
           </p>
-          <p className="text-xs text-muted mt-1">
-            {!isNewProduct 
-              ? 'Данные автоматически подгружены из каталога.' 
-              : 'Введите данные товара вручную ниже.'}
-          </p>
+          <div className="flex justify-between items-center w-full mt-1">
+            <p className="text-xs text-muted">
+              {!isNewProduct 
+                ? 'Данные автоматически подгружены из каталога.' 
+                : 'Введите данные товара вручную ниже.'}
+            </p>
+            {debugDistance !== undefined && (
+              <span className="text-[10px] bg-slate-800 text-slate-500 px-1.5 py-0.5 rounded font-mono">
+                dist: {debugDistance.toFixed(3)} {bestMatchName ? `(${bestMatchName})` : ''}
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
