@@ -19,28 +19,38 @@ const getVisualHash = (imageSrc: string): Promise<string> => {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
-      // 1. CROP: Focus on the center 40% of the image (more likely to be the label)
-      const cropWidth = img.width * 0.4;
-      const cropHeight = img.height * 0.4;
-      const x = (img.width - cropWidth) / 2;
-      const y = (img.height - cropHeight) / 2;
+      // 1. CROP: Focus on center 45% (optimal for labels)
+      const cropW = img.width * 0.45;
+      const cropH = img.height * 0.45;
+      const x = (img.width - cropW) / 2;
+      const y = (img.height - cropH) / 2;
 
-      const sizeW = 33; // 33 for 32 bits horizontally
-      const sizeH = 32;
+      const sizeW = 65; // for 64 bits horizontally
+      const sizeH = 64;
       const canvas = document.createElement('canvas');
       canvas.width = sizeW;
       canvas.height = sizeH;
       const ctx = canvas.getContext('2d')!;
-      
-      // Draw cropped and resized
-      ctx.drawImage(img, x, y, cropWidth, cropHeight, 0, 0, sizeW, sizeH);
+      ctx.drawImage(img, x, y, cropW, cropH, 0, 0, sizeW, sizeH);
       const data = ctx.getImageData(0, 0, sizeW, sizeH).data;
       
+      // 2. GRAYSCALE & NORMALIZATION
       const grayscale = new Uint8Array(sizeW * sizeH);
+      let min = 255, max = 0;
       for (let i = 0; i < data.length; i += 4) {
-        grayscale[i/4] = (data[i] * 0.299 + data[i+1] * 0.587 + data[i+2] * 0.114);
+        const val = (data[i] * 0.299 + data[i+1] * 0.587 + data[i+2] * 0.114);
+        grayscale[i/4] = val;
+        if (val < min) min = val;
+        if (val > max) max = val;
       }
       
+      // Min-Max stretching (normalization)
+      const range = (max - min) || 1;
+      for (let i = 0; i < grayscale.length; i++) {
+        grayscale[i] = ((grayscale[i] - min) / range) * 255;
+      }
+      
+      // 3. GENERATE DHASH
       let hash = "";
       for (let row = 0; row < sizeH; row++) {
         for (let col = 0; col < sizeW - 1; col++) {
@@ -148,12 +158,12 @@ const CameraCapture = () => {
       
       let bestMatch = null;
       let minDistance = 1.0;
-      const THRESHOLD = 0.28; // Higher resolution allows slightly higher threshold percentage (approx ~286 bits difference)
+      const THRESHOLD = 0.25; // 25% difference allowed for 64x64 dHash (Robust threshold)
 
       for (const p of products) {
         if (!p.labelSignature) continue;
         const dist = getHammingDistance(currentHash, p.labelSignature);
-        console.log(`Checking match for ${p.name}: dist=${dist.toFixed(3)}`);
+        console.log(`[dHash] ${p.name}: dist=${dist.toFixed(4)}`);
         if (dist < minDistance) {
           minDistance = dist;
           bestMatch = p;
