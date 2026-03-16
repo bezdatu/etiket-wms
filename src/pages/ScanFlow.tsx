@@ -19,9 +19,9 @@ const getVisualHash = (imageSrc: string): Promise<string> => {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
-      // 1. CROP: Focus on center 45% (optimal for labels)
-      const cropW = img.width * 0.45;
-      const cropH = img.height * 0.45;
+      // 1. CROP: Focus on center 38% (tighter focus on label)
+      const cropW = img.width * 0.38;
+      const cropH = img.height * 0.38;
       const x = (img.width - cropW) / 2;
       const y = (img.height - cropH) / 2;
 
@@ -158,16 +158,21 @@ const CameraCapture = () => {
       
       let bestMatch = null;
       let minDistance = 1.0;
-      const THRESHOLD = 0.28; // ~28% difference allowed (Optimized for 32x32 stability)
+      const THRESHOLD = 0.32; // ~32% difference allowed (More robust for varied conditions)
 
-      for (const p of products) {
-        if (!p.labelSignature) continue;
-        const dist = getHammingDistance(currentHash, p.labelSignature);
-        console.log(`[dHash] ${p.name}: dist=${dist.toFixed(4)}`);
-        if (dist < minDistance) {
-          minDistance = dist;
-          bestMatch = p;
-        }
+      // Keep track of top matches for debugging
+      const allDistances = products
+        .map(p => ({ 
+          name: p.name, 
+          dist: p.labelSignature ? getHammingDistance(currentHash, p.labelSignature) : 1.0 
+        }))
+        .filter(d => d.dist < 1.0)
+        .sort((a, b) => a.dist - b.dist);
+
+      if (allDistances.length > 0) {
+        minDistance = allDistances[0].dist;
+        bestMatch = products.find(p => p.name === allDistances[0].name);
+        console.log(`[dHash] Top 3 matches:`, allDistances.slice(0, 3));
       }
 
       const isMatch = bestMatch && minDistance < THRESHOLD;
@@ -189,7 +194,7 @@ const CameraCapture = () => {
           confidence,
           capturedPhoto: imageSrc,
           isNewProduct: !isMatch,
-          debugDistance: minDistance, // Pass for debug UI
+          debugDistance: minDistance, // Closest match distance
           bestMatchName: bestMatch?.name
         }
       } as any);
