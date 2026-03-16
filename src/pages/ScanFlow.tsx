@@ -19,13 +19,13 @@ const getVisualHash = (imageSrc: string): Promise<{ hash: string, focusedImage: 
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
-      // 1. Initial Sample: 60% center crop (Wide guide)
-      const sampleSize = Math.min(img.width, img.height) * 0.6;
+      // 1. Initial Sample: 70% center crop (Wide area to search within)
+      const sampleSize = Math.min(img.width, img.height) * 0.7;
       const sx = (img.width - sampleSize) / 2;
       const sy = (img.height - sampleSize) / 2;
 
-      // Draw to a logic-processing canvas (128x128)
-      const procSize = 128;
+      // Draw to a higher-res logic-processing canvas (256x256)
+      const procSize = 256;
       const procCanvas = document.createElement('canvas');
       procCanvas.width = procSize;
       procCanvas.height = procSize;
@@ -38,9 +38,9 @@ const getVisualHash = (imageSrc: string): Promise<{ hash: string, focusedImage: 
         grayscale[i/4] = (pData[i] * 0.299 + pData[i+1] * 0.587 + pData[i+2] * 0.114);
       }
 
-      // 2. "LABEL SNAP": Find sub-region with highest visual complexity
-      const windowSize = 64; 
-      const step = 4;
+      // 2. "LABEL SNAP": Robust 2D Gradient detection with center-weighting
+      const windowSize = 96; // Tighter window for more specific focus
+      const step = 8;
       let maxActivity = -1;
       let snapX = (procSize - windowSize) / 2;
       let snapY = (procSize - windowSize) / 2;
@@ -48,21 +48,33 @@ const getVisualHash = (imageSrc: string): Promise<{ hash: string, focusedImage: 
       for (let y = 0; y <= procSize - windowSize; y += step) {
         for (let x = 0; x <= procSize - windowSize; x += step) {
           let activity = 0;
-          for (let row = 0; row < windowSize; row += 4) {
-            for (let col = 0; col < windowSize - 4; col += 4) {
+          // Sample internal gradients
+          for (let row = 8; row < windowSize - 8; row += 8) {
+            for (let col = 8; col < windowSize - 8; col += 8) {
               const idx = (y + row) * procSize + (x + col);
+              // Sum absolute differences (horizontal + vertical)
               activity += Math.abs(grayscale[idx] - grayscale[idx + 1]);
+              activity += Math.abs(grayscale[idx] - grayscale[idx + procSize]);
             }
           }
-          if (activity > maxActivity) {
-            maxActivity = activity;
+          
+          // Apply center-weighting (Google Lens bias)
+          // Prefers items in the center of the scanner guide
+          const centerX = (procSize - windowSize) / 2;
+          const centerY = (procSize - windowSize) / 2;
+          const distFromCenter = Math.sqrt(Math.pow(x - centerX, 2) + Math.pow(y - centerY, 2));
+          const weight = 1 - (distFromCenter / (procSize / 2));
+          const weightedActivity = activity * (weight > 0 ? weight : 0.1);
+
+          if (weightedActivity > maxActivity) {
+            maxActivity = weightedActivity;
             snapX = x;
             snapY = y;
           }
         }
       }
 
-      // 3. FINAL HASH: Resize "snapped" sub-region to 33x32
+      // 3. FINAL HASH: Resize "snapped" sub-region to 33x32 for dHash
       const sizeW = 33;
       const sizeH = 32;
       const finalCanvas = document.createElement('canvas');
@@ -72,13 +84,15 @@ const getVisualHash = (imageSrc: string): Promise<{ hash: string, focusedImage: 
       
       fctx.drawImage(procCanvas, snapX, snapY, windowSize, windowSize, 0, 0, sizeW, sizeH);
       
-      // Also capture a nice "high-res" version of the crop for display (256x256)
+      // High-res visual confirmation for user (512x512)
       const displayCanvas = document.createElement('canvas');
-      displayCanvas.width = 256;
-      displayCanvas.height = 256;
+      displayCanvas.width = 512;
+      displayCanvas.height = 512;
       const dctx = displayCanvas.getContext('2d')!;
-      dctx.drawImage(procCanvas, snapX, snapY, windowSize, windowSize, 0, 0, 256, 256);
-      const focusedImage = displayCanvas.toDataURL('image/jpeg', 0.8);
+      dctx.imageSmoothingEnabled = true;
+      dctx.imageSmoothingQuality = 'high';
+      dctx.drawImage(procCanvas, snapX, snapY, windowSize, windowSize, 0, 0, 512, 512);
+      const focusedImage = displayCanvas.toDataURL('image/jpeg', 0.9);
 
       const finalData = fctx.getImageData(0, 0, sizeW, sizeH).data;
       const finalGrayscale = new Uint8Array(sizeW * sizeH);
@@ -432,20 +446,22 @@ const ScanResult = () => {
         ) : (
           <CheckCircle2 className="text-primary-500 mt-0.5" />
         )}
-        <div>
+        <div className="flex-1 min-w-0">
           <p className="font-bold text-primary-500">
             {!isNewProduct ? 'Товар узнан' : 'Захват фото выполнен'}
           </p>
-          <div className="flex justify-between items-center w-full mt-1">
+          <div className="flex flex-wrap justify-between items-center w-full mt-1 gap-2">
             <p className="text-xs text-muted">
               {!isNewProduct 
                 ? 'Данные автоматически подгружены из каталога.' 
                 : 'Введите данные товара вручную ниже.'}
             </p>
             {debugDistance !== undefined && (
-              <span className="text-[10px] bg-slate-800 text-slate-500 px-1.5 py-0.5 rounded font-mono">
-                dist: {debugDistance.toFixed(3)} {bestMatchName ? `(${bestMatchName})` : ''}
-              </span>
+              <div className="flex flex-col items-end">
+                <span className="text-[10px] bg-slate-800 text-slate-500 px-1.5 py-0.5 rounded font-mono">
+                  dist: {debugDistance.toFixed(3)} {bestMatchName ? `(${bestMatchName})` : ''}
+                </span>
+              </div>
             )}
           </div>
         </div>
@@ -454,11 +470,11 @@ const ScanResult = () => {
       {/* Product card */}
       <div className="card p-4">
         <div className="flex gap-4 mb-4">
-          <div className="w-24 h-24 bg-slate-800 rounded-lg overflow-hidden flex-shrink-0">
-            {product.photoUrl ? (
+          <div className="w-24 h-24 bg-slate-800 rounded-lg overflow-hidden flex-shrink-0 border border-slate-700 shadow-inner">
+            {capturedPhoto ? (
+              <img src={capturedPhoto} alt="Focus" className="w-full h-full object-cover" />
+            ) : product.photoUrl ? (
               <img src={product.photoUrl} alt="" className="w-full h-full object-cover" />
-            ) : capturedPhoto ? (
-              <img src={capturedPhoto} alt="Скан" className="w-full h-full object-cover" />
             ) : <Package className="m-auto mt-6 text-slate-600" size={40} />}
           </div>
           <div className="flex-1 space-y-4">
