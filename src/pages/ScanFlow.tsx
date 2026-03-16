@@ -5,6 +5,64 @@ import { Camera, CheckCircle2, ArrowRight, X, Package, ScanLine } from 'lucide-r
 import { Product } from '../types';
 import Webcam from 'react-webcam';
 
+// --- Visual Identification Utilities ---
+
+/**
+ * Generates an Average Hash (perceptual hash) from a canvas/image.
+ * 1. Resizes to 8x8.
+ * 2. Grayscale.
+ * 3. Compares to average color.
+ */
+const getAverageHash = (imageSrc: string): Promise<string> => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const size = 16; // 16x16 hash (256 bits)
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d')!;
+      
+      // Draw resized
+      ctx.drawImage(img, 0, 0, size, size);
+      const data = ctx.getImageData(0, 0, size, size).data;
+      
+      let total = 0;
+      const grayscale = new Uint8Array(size * size);
+      
+      for (let i = 0; i < data.length; i += 4) {
+        // Simple grayscale (R+G+B)/3
+        const avg = (data[i] + data[i+1] + data[i+2]) / 3;
+        grayscale[i/4] = avg;
+        total += avg;
+      }
+      
+      const mean = total / (size * size);
+      let hash = "";
+      for (let i = 0; i < grayscale.length; i++) {
+        hash += grayscale[i] >= mean ? "1" : "0";
+      }
+      resolve(hash);
+    };
+    img.src = imageSrc;
+  });
+};
+
+/**
+ * Calculates Hamming distance between two binary hash strings.
+ * Lower distance means higher similarity.
+ */
+const getHammingDistance = (h1: string, h2: string): number => {
+  if (h1.length !== h2.length) return 1.0;
+  let dist = 0;
+  for (let i = 0; i < h1.length; i++) {
+    if (h1[i] !== h2[i]) dist++;
+  }
+  return dist / h1.length;
+};
+
+// --- Components ---
+
 export const ScanFlow = () => {
   return (
     <Routes>
@@ -59,6 +117,8 @@ const CameraCapture = () => {
   const [scanStatus, setScanStatus] = useState('');
   const webcamRef = useRef<Webcam>(null);
 
+  const { products } = useStore();
+
   const handleScan = useCallback(async () => {
     setIsScanning(true);
     setScanStatus('Захват изображения...');
@@ -70,26 +130,53 @@ const CameraCapture = () => {
       return;
     }
 
-    setScanStatus('Обработка...');
+    setScanStatus('Распознавание...');
 
-    const resultProduct: Product = {
-      id: `prod_${Date.now()}`,
-      name: '',
-      description: '',
-      photoUrl: '',
-      labelSignature: `manual_${Date.now()}`
-    };
+    try {
+      // 1. Crop the recognition zone (center 64x64 relative to viewfinder box)
+      // Visual box is roughly 64/80 width if full screen. Let's just use center crop.
+      const currentHash = await getAverageHash(imageSrc);
+      
+      // 2. Search for matches
+      let bestMatch = null;
+      let minDistance = 1.0;
+      const THRESHOLD = 0.15; // 15% difference allowed
 
-    navigate('/scan/result', {
-      state: {
-        type: opType,
-        prediction: resultProduct,
-        confidence: 1,
-        capturedPhoto: imageSrc,
-        isNewProduct: true
+      for (const p of products) {
+        if (!p.labelSignature) continue;
+        const dist = getHammingDistance(currentHash, p.labelSignature);
+        if (dist < minDistance) {
+          minDistance = dist;
+          bestMatch = p;
+        }
       }
-    } as any);
-  }, [navigate, opType]);
+
+      const isMatch = bestMatch && minDistance < THRESHOLD;
+      const confidence = isMatch ? (1 - minDistance) : 0.5;
+
+      const resultProduct: Product = isMatch ? bestMatch : {
+        id: `prod_${Date.now()}`,
+        name: '',
+        description: '',
+        photoUrl: '',
+        labelSignature: currentHash
+      };
+
+      navigate('/scan/result', {
+        state: {
+          type: opType,
+          prediction: resultProduct,
+          confidence,
+          capturedPhoto: imageSrc,
+          isNewProduct: !isMatch
+        }
+      } as any);
+    } catch (err) {
+      console.error('Scan error:', err);
+      setIsScanning(false);
+      setScanStatus('Ошибка');
+    }
+  }, [navigate, opType, products]);
 
   return (
     <div className="h-[80vh] flex flex-col">
