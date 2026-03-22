@@ -546,7 +546,10 @@ const fitCircleToPoints = (points: Array<{ x: number; y: number }>) => {
   };
 };
 
-const buildShapeObjectBoxFromCanvas = (canvas: HTMLCanvasElement): FrameBox | null => {
+const buildShapeObjectBoxFromCanvas = (
+  canvas: HTMLCanvasElement,
+  anchorPoints?: Array<{ x: number; y: number }>,
+): FrameBox | null => {
   const width = canvas.width;
   const height = canvas.height;
   if (!width || !height) return null;
@@ -615,6 +618,14 @@ const buildShapeObjectBoxFromCanvas = (canvas: HTMLCanvasElement): FrameBox | nu
   const visited = new Uint8Array(expandedMask.length);
   const frameCenterX = gridWidth / 2;
   const frameCenterY = gridHeight / 2;
+  const anchorCenter = anchorPoints?.length
+    ? {
+        x: anchorPoints.reduce((sum, point) => sum + point.x, 0) / anchorPoints.length,
+        y: anchorPoints.reduce((sum, point) => sum + point.y, 0) / anchorPoints.length,
+      }
+    : null;
+  const anchorCellX = anchorCenter ? anchorCenter.x / cellSize : null;
+  const anchorCellY = anchorCenter ? anchorCenter.y / cellSize : null;
 
   let best:
     | {
@@ -634,12 +645,20 @@ const buildShapeObjectBoxFromCanvas = (canvas: HTMLCanvasElement): FrameBox | nu
       visited[seed] = 1;
       let cursor = 0;
       const points: Array<{ x: number; y: number }> = [];
+      let minX = gx;
+      let maxX = gx;
+      let minY = gy;
+      let maxY = gy;
 
       while (cursor < queue.length) {
         const index = queue[cursor++];
         const x = index % gridWidth;
         const y = Math.floor(index / gridWidth);
         points.push({ x, y });
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
 
         const neighbors = [index - 1, index + 1, index - gridWidth, index + gridWidth];
         for (const next of neighbors) {
@@ -667,14 +686,25 @@ const buildShapeObjectBoxFromCanvas = (canvas: HTMLCanvasElement): FrameBox | nu
       const centerDistance =
         Math.sqrt((circle.centerX - frameCenterX) ** 2 + (circle.centerY - frameCenterY) ** 2) /
         Math.max(gridWidth, gridHeight);
+      const anchorDistance =
+        anchorCellX !== null && anchorCellY !== null
+          ? Math.sqrt((circle.centerX - anchorCellX) ** 2 + (circle.centerY - anchorCellY) ** 2) /
+            Math.max(gridWidth, gridHeight)
+          : null;
       const circularityPenalty = radiusStd / Math.max(circle.radius, 1);
+      const containsAnchor =
+        anchorCellX === null ||
+        anchorCellY === null ||
+        (anchorCellX >= minX && anchorCellX <= maxX && anchorCellY >= minY && anchorCellY <= maxY);
 
       if (circle.radius < 4 || areaRatio < 0.04 || areaRatio > 0.55) continue;
+      if (!containsAnchor) continue;
 
       const score =
         areaRatio * 3.8 +
         Math.max(0, 1 - circularityPenalty * 6) * 1.9 +
-        Math.max(0, 1 - centerDistance * 1.7);
+        Math.max(0, 1 - centerDistance * 1.7) +
+        (anchorDistance === null ? 0 : Math.max(0, 1 - anchorDistance * 2.2) * 2.4);
 
       if (!best || score > best.score) {
         best = {
@@ -1218,7 +1248,7 @@ const CameraCapture = () => {
       const match = await scanPreviewBarcode(snapshot);
       if (cancelled) return;
 
-      const shapeBox = buildShapeObjectBoxFromCanvas(snapshot);
+      const shapeBox = buildShapeObjectBoxFromCanvas(snapshot, match?.points);
       if (shapeBox) {
         setShapeTrackedBox((previous) => smoothBox(previous, shapeBox, 0.26));
       } else if (!match) {
