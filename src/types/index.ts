@@ -16,7 +16,10 @@ export type Product = {
   photoUrl: string;
   labelSignature: string; // Used for CV matching simulation
   barcode?: string;
+  barcodes?: string[];
+  ambiguityGroup?: string;
   metadata?: Record<string, string>;
+  recognitionProfile?: RecognitionProfile;
 };
 
 export type InventoryBalance = {
@@ -44,4 +47,18 @@ export type ScanSession = {
   timestamp: string;
   confidenceScore: number;
   imageRef: string;
+};
+
+export type RecognitionRoiProfile = {
+  id: string;
+  hash: string;
+  weight: number;
+};
+
+export type RecognitionProfile = {
+  visualHash: string;
+  roiProfiles: RecognitionRoiProfile[];
+  barcodeHints: string[];
+  learnedAt: string;
+  referenceCount: number;
 };

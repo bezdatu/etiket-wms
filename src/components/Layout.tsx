@@ -1,16 +1,24 @@
 import { Outlet, NavLink } from 'react-router-dom';
 import { Home, ScanLine, Package, History, MapPin } from 'lucide-react';
 import { clsx } from 'clsx';
+import { useAppVersionLabel } from '../appVersion';
 
 export const Layout = () => {
+  const appVersionLabel = useAppVersionLabel();
+
   return (
     <div className="flex flex-col h-screen bg-background text-text overflow-hidden font-sans">
       {/* Header */}
       <header className="flex-none bg-surface border-b border-slate-700/50 p-4 sticky top-0 z-10 backdrop-blur-md">
         <div className="flex justify-between items-center max-w-lg mx-auto w-full">
-          <h1 className="text-xl font-bold bg-gradient-to-r from-primary-400 to-primary-600 bg-clip-text text-transparent">
-            PartSense WMS
-          </h1>
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold bg-gradient-to-r from-primary-400 to-primary-600 bg-clip-text text-transparent">
+              PartSense WMS [DEBUG-V6]
+            </h1>
+            <div className="mt-1 text-[10px] uppercase tracking-wide text-slate-400">
+              {appVersionLabel}
+            </div>
+          </div>
         </div>
       </header>
 

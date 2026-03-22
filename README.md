@@ -1,21 +1,35 @@
-# PartSense WMS (Label Scanner MVP)
+# PartSense WMS
 
-Production-style MVP for warehouse label inventory. 
-Web-first architecture ready for a future mobile app transition. Built with React, Vite, Tailwind CSS, and Zustand.
+Локальное приложение для складского учета с приоритетом на надежное распознавание похожих этикеток.
 
-## Core Features
-1. **Camera Scanner**: Quick label scanning with confidence score and manual confirmation.
-2. **Dashboard**: Real-time inventory metrics and recent operations log.
-3. **Catalog & Inventory**: Browse products and their physical warehouse locations (Rack-Sector-Floor-Position).
-4. **Operation History**: Audit log of all incoming and outgoing goods.
+## Что есть сейчас
+1. Камерный scan flow с каскадным recognition pipeline.
+2. Barcode-first логика с fallback на visual/ROI scoring.
+3. Локальный catalog и история операций.
+4. Benchmark и diagnostics режим без внешних сервисов.
 
 ## Local Setup
-1. Clone the repository
-2. Install dependencies: `npm install`
-3. Run the development server: `npm run dev`
+1. `npm install`
+2. `npm run dev`
+3. Открыть локальное приложение и перейти в `Сканирование`
 
-## Deployment
-This project is configured for one-click deployment to Netlify (`netlify.toml` included). The build command is `npm run build` and the publish directory is `dist`. SPA routing fallback is active.
+## Recognition Pipeline
+Подробности: [recognition-pipeline.md](/Users/fedor/etiket/docs/recognition-pipeline.md)
 
-## Future Mobile Transition
-The current structure keeps UI components and the Zustand data store strictly separated. The mock persistence layer (`localStorage`) can easily be replaced by an API client (e.g., React Query + Axios) for syncing with a backend, maintaining the exact same UI components for a Capacitor or React Native container.
+Ключевые компоненты:
+1. `src/config/recognition.ts` — thresholds и ROI config
+2. `src/recognition/*` — scanner, OCR, scoring, diagnostics
+3. `src/pages/RecognitionWorkbench.tsx` — локальный benchmark mode
+
+## Локальная проверка
+1. Добавить несколько товаров в catalog через scan flow.
+2. Для похожих товаров с одинаковым barcode прогнать `Benchmark и diagnostics`.
+3. Проверить:
+   - какой barcode найден
+   - какие top candidates выданы
+   - где pipeline просит `rescan`
+   - accuracy benchmark по локальным кейсам
+
+## Reference Samples
+Структура и правила: [README.md](/Users/fedor/etiket/reference-samples/README.md)
+
