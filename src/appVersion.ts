@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 
+declare const __APP_VERSION__: string;
 declare const __APP_BUILD_STAMP__: string;
 
 type VersionState = {
+  version: string;
   buildStamp: string;
   loadStamp: string;
   hmrCount: number;
@@ -19,6 +21,7 @@ declare global {
 const getVersionState = () => {
   if (!window.__ETIKET_APP_VERSION__) {
     window.__ETIKET_APP_VERSION__ = {
+      version: __APP_VERSION__,
       buildStamp: __APP_BUILD_STAMP__,
       loadStamp: new Date().toISOString(),
       hmrCount: 0,
@@ -43,8 +46,7 @@ const formatShortStamp = (value: string) => value.replace('T', ' ').replace(/\..
 
 export const getAppVersionLabel = () => {
   const state = getVersionState();
-  const modeLabel = import.meta.env.DEV ? 'dev' : 'build';
-  return `${modeLabel} ${formatShortStamp(state.buildStamp)} · load ${formatShortStamp(state.loadStamp)} · hmr ${state.hmrCount}`;
+  return `${state.version} · load ${formatShortStamp(state.loadStamp)} · hmr ${state.hmrCount}`;
 };
 
 export const useAppVersionLabel = () => {
