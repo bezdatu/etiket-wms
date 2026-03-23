@@ -14,12 +14,14 @@ import { useStore } from '../store';
 import type { Product, StockOperationType } from '../types';
 import { recognitionConfig } from '../config/recognition';
 import { aggregateRecognitionFrames, shouldAccumulateFrame } from '../recognition/aggregation';
+import { isValidBarcodeChecksum } from '../recognition/utils';
 import {
   applyPreferredTrackConstraints,
   describeCameraProfile,
   isContinuityCameraLabel,
   pickPreferredVideoDevice,
   type CameraProfile,
+  type LivePreviewTuning,
   resolveLivePreviewTuning,
 } from '../recognition/cameraControls';
 import { scanPreviewBarcode } from '../recognition/barcode';
@@ -93,15 +95,19 @@ const numSort = (left: string, right: string) => {
   return normalizedLeft - normalizedRight;
 };
 
-const buildAdaptiveCaptureRoi = (metrics: PreviewMetrics | null) => {
+const buildAdaptiveCaptureRoi = (detected: FrameBox | null) => {
   const base = recognitionConfig.livePreview.targetRoi;
-  const detected = metrics?.objectBox;
   if (!detected) return base;
 
-  const width = Math.max(0.18, Math.min(0.92, detected.width));
-  const height = Math.max(0.22, Math.min(0.95, detected.height));
-  const x = Math.max(0, Math.min(1 - width, detected.x));
-  const y = Math.max(0, Math.min(1 - height, detected.y));
+  const aspect = detected.width / Math.max(detected.height, 1e-6);
+  const looksCircular = aspect >= 0.82 && aspect <= 1.22;
+  const insetRatio = looksCircular ? 0.055 : 0.03;
+  const insetX = detected.width * insetRatio;
+  const insetY = detected.height * insetRatio;
+  const width = Math.max(0.18, Math.min(0.92, detected.width - insetX * 2));
+  const height = Math.max(0.22, Math.min(0.95, detected.height - insetY * 2));
+  const x = Math.max(0, Math.min(1 - width, detected.x + insetX));
+  const y = Math.max(0, Math.min(1 - height, detected.y + insetY));
 
   return {
     x,
@@ -134,6 +140,52 @@ const smoothBox = (
     width: previous.width + (next.width - previous.width) * alpha,
     height: previous.height + (next.height - previous.height) * alpha,
   });
+};
+
+const alignPreviewMetricsToViewfinder = (
+  metrics: PreviewMetrics,
+  viewfinderBox: FrameBox | null,
+  tuning: LivePreviewTuning,
+) => {
+  if (!viewfinderBox) return metrics;
+
+  const aspect = viewfinderBox.width / Math.max(viewfinderBox.height, 1e-6);
+  const box = clampBox(viewfinderBox);
+  const centeredness = Math.max(
+    0,
+    Math.min(
+      1,
+      1 -
+        Math.sqrt(
+          (box.x + box.width / 2 - 0.5) ** 2 +
+            (box.y + box.height / 2 - 0.5) ** 2,
+        ) /
+          Math.SQRT1_2,
+    ),
+  );
+  const coverage = Math.min(1, box.width * box.height * 0.92);
+  const likelyCircularTarget =
+    aspect >= Math.max(0.72, tuning.minAspectRatio - 0.04) &&
+    aspect <= 1.42 &&
+    centeredness >= Math.max(0.54, tuning.minCenteredness - 0.1);
+
+  if (!likelyCircularTarget) {
+    return metrics;
+  }
+
+  const reasons = metrics.reasons.filter((reason) => reason !== 'too-close');
+
+  return {
+    ...metrics,
+    coverage,
+    centeredness: Math.max(metrics.centeredness, centeredness),
+    aspectRatio: aspect,
+    contentWidthRatio: box.width,
+    contentHeightRatio: box.height,
+    objectBox: box,
+    ready: reasons.length === 0,
+    reasons,
+  };
 };
 
 const buildBoxFromBarcodePoints = (
@@ -439,6 +491,23 @@ const buildRefinedObjectBoxFromBarcode = (
 };
 
 const buildBarcodeCaptureRoi = (roi: { x: number; y: number; width: number; height: number }) => {
+  const aspect = roi.width / Math.max(roi.height, 1e-6);
+  const looksCircular = aspect >= 0.82 && aspect <= 1.22;
+
+  if (looksCircular) {
+    const width = Math.min(0.82, roi.width * 0.78);
+    const height = Math.min(0.54, roi.height * 0.42);
+    const x = Math.max(0, Math.min(1 - width, roi.x + (roi.width - width) / 2));
+    const y = Math.max(0, Math.min(1 - height, roi.y + roi.height * 0.06));
+
+    return {
+      x,
+      y,
+      width,
+      height,
+    };
+  }
+
   const width = Math.min(0.92, roi.width * 1.55);
   const height = Math.min(0.86, roi.height * 0.72);
   const x = Math.max(0, Math.min(1 - width, roi.x - (width - roi.width) / 2));
@@ -887,6 +956,7 @@ const CameraCapture = () => {
   const [smoothedViewfinderBox, setSmoothedViewfinderBox] = useState<FrameBox | null>(null);
   const [barcodeTrackedBox, setBarcodeTrackedBox] = useState<FrameBox | null>(null);
   const [shapeTrackedBox, setShapeTrackedBox] = useState<FrameBox | null>(null);
+  const trackedViewfinderRef = useRef<FrameBox | null>(null);
   const usesContinuityPreview = Boolean(cameraProfile && isContinuityCameraLabel(cameraProfile.label));
   const continuityNeedsRotation =
     usesContinuityPreview && previewStreamSize.height > 0 && previewStreamSize.height > previewStreamSize.width;
@@ -906,7 +976,7 @@ const CameraCapture = () => {
       : '133.333%';
   const detectedViewfinderBox = buildViewfinderBox(previewMetrics);
   const viewfinderBox = shapeTrackedBox || barcodeTrackedBox || smoothedViewfinderBox || detectedViewfinderBox;
-  const adaptiveCaptureRoi = buildAdaptiveCaptureRoi(previewMetrics);
+  const adaptiveCaptureRoi = buildAdaptiveCaptureRoi(viewfinderBox);
   const barcodeCaptureRoi = buildBarcodeCaptureRoi(adaptiveCaptureRoi);
   const livePreviewTuning = resolveLivePreviewTuning(
     {
@@ -936,6 +1006,8 @@ const CameraCapture = () => {
     previousPreviewFrame: Uint8Array | null;
     analysisTimer: number | null;
     frameCallbackId: number | null;
+    previewBarcodeHint: string | null;
+    previewBarcodeHits: number;
   }>({
     frames: [],
     framesSeen: 0,
@@ -946,7 +1018,13 @@ const CameraCapture = () => {
     previousPreviewFrame: null,
     analysisTimer: null,
     frameCallbackId: null,
+    previewBarcodeHint: null,
+    previewBarcodeHits: 0,
   });
+
+  useEffect(() => {
+    trackedViewfinderRef.current = viewfinderBox;
+  }, [viewfinderBox]);
 
   const resetSession = useCallback(() => {
     sessionRef.current = {
@@ -959,6 +1037,8 @@ const CameraCapture = () => {
       previousPreviewFrame: null,
       analysisTimer: null,
       frameCallbackId: null,
+      previewBarcodeHint: null,
+      previewBarcodeHits: 0,
     };
     setAggregation(null);
     setFeedback([]);
@@ -1029,7 +1109,20 @@ const CameraCapture = () => {
             barcodeImageSrc: barcodeCapture || captureSrc,
             ocrMode: index === livePreviewTuning.burstFrames - 1 ? 'full' : 'fast',
           });
-          const accepted = shouldAccumulateFrame(result);
+          const previewBarcodeLocked =
+            Boolean(sessionRef.current.previewBarcodeHint) && sessionRef.current.previewBarcodeHits >= 2;
+          const enrichedResult =
+            !result.barcode && previewBarcodeLocked && sessionRef.current.previewBarcodeHint
+              ? {
+                  ...result,
+                  barcode: {
+                    rawValue: sessionRef.current.previewBarcodeHint,
+                    format: 'ean_13',
+                    source: 'zxing' as const,
+                  },
+                }
+              : result;
+          const accepted = shouldAccumulateFrame(enrichedResult);
           sessionRef.current.framesSeen += 1;
           sessionRef.current.frames = [
             ...sessionRef.current.frames,
@@ -1037,12 +1130,12 @@ const CameraCapture = () => {
               id: `burst_${Date.now()}_${index}`,
               capturedAt: Date.now(),
               accepted,
-              result,
+              result: enrichedResult,
             },
           ].slice(-recognitionConfig.aggregation.bufferSize);
           const aggregated = aggregateRecognitionFrames(sessionRef.current.frames, false, { persistDiagnostics: false });
           setAggregation(aggregated?.aggregation || null);
-          setFeedback(deriveCameraFeedback(result, aggregated?.aggregation || null));
+          setFeedback(deriveCameraFeedback(enrichedResult, aggregated?.aggregation || null));
           setScanStatus(`Анализ серии кадров ${index + 1}/${livePreviewTuning.burstFrames}`);
         } catch (frameError) {
           console.warn('Recognition frame failed, continuing burst', frameError);
@@ -1248,6 +1341,15 @@ const CameraCapture = () => {
       const match = await scanPreviewBarcode(snapshot);
       if (cancelled) return;
 
+      if (match?.rawValue && isValidBarcodeChecksum(match.rawValue)) {
+        if (sessionRef.current.previewBarcodeHint === match.rawValue) {
+          sessionRef.current.previewBarcodeHits += 1;
+        } else {
+          sessionRef.current.previewBarcodeHint = match.rawValue;
+          sessionRef.current.previewBarcodeHits = 1;
+        }
+      }
+
       const shapeBox = buildShapeObjectBoxFromCanvas(snapshot, match?.points);
       if (shapeBox) {
         setShapeTrackedBox((previous) => smoothBox(previous, shapeBox, 0.26));
@@ -1328,11 +1430,16 @@ const CameraCapture = () => {
       }
 
       sessionRef.current.previousPreviewFrame = analysis.grayscale;
-      setPreviewMetrics(analysis.metrics);
-      const previewMessages = getPreviewFeedback(analysis.metrics);
-      setFeedback(buildPreviewFeedback(previewMessages, analysis.metrics.ready));
+      const effectiveMetrics = alignPreviewMetricsToViewfinder(
+        analysis.metrics,
+        trackedViewfinderRef.current,
+        livePreviewTuning,
+      );
+      setPreviewMetrics(effectiveMetrics);
+      const previewMessages = getPreviewFeedback(effectiveMetrics);
+      setFeedback(buildPreviewFeedback(previewMessages, effectiveMetrics.ready));
 
-      if (analysis.metrics.ready) {
+      if (effectiveMetrics.ready) {
         sessionRef.current.stableFrames += 1;
         if (isScanning) {
           setScanStatus(

@@ -460,8 +460,8 @@ export const analyzePreviewFrame = (
     : null;
   const coverage = clamp01(
     Math.max(
-      bounds?.activeRatio ? bounds.activeRatio * 5.5 : 0,
-      objectBox ? objectBox.width * objectBox.height * 0.95 : 0,
+      bounds?.activeRatio ? bounds.activeRatio * 3.4 : 0,
+      objectBox ? objectBox.width * objectBox.height * 0.9 : 0,
     ),
   );
   const centeredness = bounds
@@ -487,6 +487,13 @@ export const analyzePreviewFrame = (
     minAspectRatio: tuning?.minAspectRatio ?? recognitionConfig.livePreview.minAspectRatio,
   };
 
+  const circularCandidate =
+    objectBox &&
+    aspectRatio >= Math.max(0.78, thresholds.minAspectRatio) &&
+    aspectRatio <= 1.28 &&
+    centeredness >= Math.max(0.58, thresholds.minCenteredness - 0.06);
+  const effectiveMaxCoverage = circularCandidate ? 1 : thresholds.maxCoverage;
+
   const reasons: string[] = [];
   if (brightness < thresholds.minBrightness) reasons.push('too-dark');
   if (brightness > thresholds.maxBrightness) reasons.push('too-bright');
@@ -494,7 +501,7 @@ export const analyzePreviewFrame = (
   if (sharpness < thresholds.minSharpness) reasons.push('blurry');
   if (motion > thresholds.maxMotion) reasons.push('motion');
   if (coverage < thresholds.minCoverage) reasons.push('too-far');
-  if (coverage > thresholds.maxCoverage) reasons.push('too-close');
+  if (coverage > effectiveMaxCoverage) reasons.push('too-close');
   if (centeredness < thresholds.minCenteredness) reasons.push('off-center');
   if (aspectRatio > 0 && aspectRatio < thresholds.minAspectRatio) reasons.push('tilted');
 

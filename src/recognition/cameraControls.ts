@@ -150,6 +150,7 @@ export const resolveLivePreviewTuning = (
       minSharpness: Math.max(9.5, defaults.minSharpness - 1),
       maxMotion: defaults.maxMotion,
       minCoverage: Math.max(0.07, defaults.minCoverage - 0.01),
+      maxCoverage: Math.min(0.88, defaults.maxCoverage + 0.12),
       minCenteredness: Math.max(0.62, defaults.minCenteredness - 0.04),
       minAspectRatio: defaults.minAspectRatio,
       requiredStableFrames: Math.max(5, defaults.requiredStableFrames - 2),
