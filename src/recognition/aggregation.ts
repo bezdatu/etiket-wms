@@ -5,7 +5,13 @@ import type {
   BufferedRecognitionFrame,
   RecognitionRunResult,
 } from './types';
-import { extractBarcodeHints, isSyntheticBarcodeProduct, isValidBarcodeChecksum, scoreTextOverlap } from './utils';
+import {
+  extractBarcodeHints,
+  isSyntheticBarcodeProduct,
+  isValidBarcodeChecksum,
+  scoreOcrTextUsefulness,
+  scoreTextOverlap,
+} from './utils';
 
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 
@@ -72,7 +78,9 @@ const getOcrStability = (frames: BufferedRecognitionFrame[]) => {
   const dominantText = [...titleTexts].sort((left, right) => right.length - left.length)[0];
   const overlap =
     titleTexts.reduce((acc, text) => acc + scoreTextOverlap(text, dominantText), 0) / titleTexts.length;
-  return clamp01(overlap);
+  const usefulness =
+    titleTexts.reduce((acc, text) => acc + scoreOcrTextUsefulness(text), 0) / titleTexts.length;
+  return clamp01(overlap * usefulness);
 };
 
 const buildSummary = (

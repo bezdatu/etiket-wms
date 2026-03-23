@@ -129,6 +129,30 @@ export const scoreTextOverlap = (probe: string, candidate: string) => {
   return matches / Math.max(probeTokens.size, candidateTokens.size);
 };
 
+export const scoreOcrTextUsefulness = (value?: string | null) => {
+  const normalized = (value || '').replace(/\s+/g, ' ').trim();
+  if (!normalized) return 0;
+
+  const letters = normalized.match(/[A-Za-zА-Яа-яЁё]/g) || [];
+  const digits = normalized.match(/\d/g) || [];
+  const words = normalized.split(' ').filter(Boolean);
+  if (words.length === 0) return 0;
+
+  const alphaRatio = letters.length / normalized.length;
+  const digitRatio = digits.length / normalized.length;
+  const meaningfulWords = words.filter((word) => (word.match(/[A-Za-zА-Яа-яЁё]/g) || []).length >= 3).length;
+  const averageWordLength = words.reduce((sum, word) => sum + word.length, 0) / words.length;
+  const longRuns = normalized.match(/[A-Za-zА-Яа-яЁё]{8,}/g) || [];
+
+  const alphaScore = Math.max(0, Math.min(1, (alphaRatio - 0.35) / 0.45));
+  const digitPenalty = digitRatio > 0.42 ? Math.min(1, (digitRatio - 0.42) / 0.25) : 0;
+  const wordScore = Math.max(0, Math.min(1, meaningfulWords / Math.max(2, words.length * 0.6)));
+  const lengthScore = Math.max(0, Math.min(1, (averageWordLength - 2.4) / 3));
+  const runScore = Math.max(0, Math.min(1, longRuns.length / 2));
+
+  return Math.max(0, Math.min(1, alphaScore * 0.35 + wordScore * 0.3 + lengthScore * 0.2 + runScore * 0.15 - digitPenalty * 0.45));
+};
+
 export const evaluateFrameQuality = (image: HTMLImageElement): QualityMetrics => {
   const minSide = Math.min(image.width, image.height);
   const canvas = createCanvas(image.width, image.height);

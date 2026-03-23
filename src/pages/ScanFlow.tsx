@@ -1087,6 +1087,20 @@ const CameraCapture = () => {
     setScanStatus('Объект зафиксирован, снимаю серию кадров...');
 
     try {
+      // Freeze the object once after lock and use this still as the primary OCR/normalization source.
+      const lockedStillSrc = captureVideoFrame(video, {
+        mimeType: 'image/jpeg',
+        quality: 0.98,
+        roi: adaptiveCaptureRoi,
+        padding: livePreviewTuning.capturePadding,
+      });
+      const lockedStillBarcodeSrc = captureVideoFrame(video, {
+        mimeType: 'image/jpeg',
+        quality: 0.98,
+        roi: barcodeCaptureRoi,
+        padding: Math.min(0.18, livePreviewTuning.capturePadding + 0.05),
+      });
+
       for (let index = 0; index < livePreviewTuning.burstFrames; index += 1) {
         try {
           const roiCapture = captureVideoFrame(video, {
@@ -1101,12 +1115,13 @@ const CameraCapture = () => {
             roi: barcodeCaptureRoi,
             padding: Math.min(0.18, livePreviewTuning.capturePadding + 0.05),
           });
-          const captureSrc = roiCapture || barcodeCapture;
+          const captureSrc = lockedStillSrc || roiCapture || barcodeCapture;
+          const barcodeSrc = barcodeCapture || lockedStillBarcodeSrc || captureSrc;
           if (!captureSrc) continue;
 
           const result = await runRecognitionPipeline(captureSrc, products, {
             persistDiagnostics: false,
-            barcodeImageSrc: barcodeCapture || captureSrc,
+            barcodeImageSrc: barcodeSrc,
             ocrMode: index === livePreviewTuning.burstFrames - 1 ? 'full' : 'fast',
           });
           const previewBarcodeLocked =
