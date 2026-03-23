@@ -142,6 +142,7 @@ export const runRecognitionPipeline = async (
       ],
       normalizedImage: normalized.dataUrl,
       rawImage: imageSrc,
+      barcodeImage: options?.barcodeImageSrc || imageSrc,
       rescanRecommended: false,
       requiresConfirmation:
         !quality.passes && Math.max(confidence, candidate.total) < recognitionConfig.scoring.confidentThreshold,
@@ -219,6 +220,7 @@ export const runRecognitionPipeline = async (
     })),
     normalizedImage: normalized.dataUrl,
     rawImage: imageSrc,
+    barcodeImage: options?.barcodeImageSrc || imageSrc,
     rescanRecommended,
     requiresConfirmation,
   };

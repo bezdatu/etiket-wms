@@ -58,6 +58,7 @@ export type RecognitionDiagnostics = {
   }>;
   normalizedImage: string;
   rawImage: string;
+  barcodeImage?: string;
   rescanRecommended: boolean;
   requiresConfirmation: boolean;
   aggregation?: AggregationSummary;
