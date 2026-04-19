@@ -310,8 +310,8 @@ export const detectCircleBox = (video: HTMLVideoElement): CircleBox | null => {
       Math.max(seeded.radius * cellSize * 1.28, 32),
       brightThreshold,
     );
-    const size = radius * 2.14;
-    const padding = size * 0.02;
+    const size = radius * 2.22;
+    const padding = size * 0.025;
 
     return clampBox({
       x: clamp01((centerX - size / 2 - padding) / width),
@@ -433,8 +433,8 @@ export const detectCircleBox = (video: HTMLVideoElement): CircleBox | null => {
     best.radius * cellSize,
     brightThreshold,
   );
-  const size = radius * 2.26;
-  const padding = size * 0.03;
+  const size = radius * 2.32;
+  const padding = size * 0.032;
 
   return clampBox({
     x: clamp01((centerX - size / 2 - padding) / width),
