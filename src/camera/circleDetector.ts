@@ -70,7 +70,7 @@ const sampleLocalAverage = (
   };
 };
 
-const refineCircleRadius = (
+const refineCircleWithContour = (
   grayscale: Uint8Array,
   chroma: Uint8Array,
   width: number,
@@ -79,7 +79,72 @@ const refineCircleRadius = (
   centerY: number,
   baseRadius: number,
   brightThreshold: number,
+  chromaThreshold: number,
 ) => {
+  const searchRadius = Math.max(24, Math.round(baseRadius * 1.28));
+  const sampleStep = Math.max(2, Math.round(baseRadius / 60));
+  const innerRadius = baseRadius * 0.48;
+  const outerRadius = baseRadius * 1.32;
+  const boundaryPoints: Array<{ x: number; y: number }> = [];
+
+  const isLabelPixel = (x: number, y: number) => {
+    if (x < 0 || x >= width || y < 0 || y >= height) return false;
+    const index = y * width + x;
+    return grayscale[index] >= brightThreshold - 10 && chroma[index] <= chromaThreshold + 6;
+  };
+
+  for (let dy = -searchRadius; dy <= searchRadius; dy += sampleStep) {
+    for (let dx = -searchRadius; dx <= searchRadius; dx += sampleStep) {
+      const distance = Math.hypot(dx, dy);
+      if (distance < innerRadius || distance > outerRadius) continue;
+
+      const x = Math.round(centerX + dx);
+      const y = Math.round(centerY + dy);
+      if (!isLabelPixel(x, y)) continue;
+
+      const left = isLabelPixel(x - sampleStep, y);
+      const right = isLabelPixel(x + sampleStep, y);
+      const up = isLabelPixel(x, y - sampleStep);
+      const down = isLabelPixel(x, y + sampleStep);
+
+      if (!left || !right || !up || !down) {
+        boundaryPoints.push({ x, y });
+      }
+    }
+  }
+
+  if (boundaryPoints.length < 20) return null;
+
+  const fitted = fitCircleToPoints(boundaryPoints);
+  if (!fitted) return null;
+
+  const distances = boundaryPoints
+    .map((point) => Math.hypot(point.x - fitted.centerX, point.y - fitted.centerY))
+    .sort((left, right) => left - right);
+  const contourRadius = distances[Math.min(distances.length - 1, Math.floor(distances.length * 0.76))] || fitted.radius;
+  const maxCenterShift = Math.max(2, baseRadius * 0.02);
+  const shiftX = Math.max(-maxCenterShift, Math.min(maxCenterShift, fitted.centerX - centerX));
+  const shiftY = Math.max(-maxCenterShift, Math.min(maxCenterShift, fitted.centerY - centerY));
+
+  return {
+    centerX: centerX + shiftX,
+    centerY: centerY + shiftY,
+    radius: contourRadius,
+  };
+};
+
+const refineCircleFit = (
+  grayscale: Uint8Array,
+  chroma: Uint8Array,
+  width: number,
+  height: number,
+  centerX: number,
+  centerY: number,
+  baseRadius: number,
+  brightThreshold: number,
+  chromaThreshold: number,
+) => {
+  const edgePoints: Array<{ x: number; y: number }> = [];
   const radii: number[] = [];
   const minRadius = Math.max(6, baseRadius * 0.62);
   const maxRadius = Math.min(Math.min(width, height) / 2, baseRadius * 1.9);
@@ -113,11 +178,49 @@ const refineCircleRadius = (
     }
 
     radii.push(bestRadius);
+    edgePoints.push({
+      x: centerX + Math.cos(angle) * bestRadius,
+      y: centerY + Math.sin(angle) * bestRadius,
+    });
   }
 
-  if (radii.length < 8) return baseRadius;
+  if (radii.length < 8) return { centerX, centerY, radius: baseRadius };
   radii.sort((left, right) => left - right);
-  return radii[Math.min(radii.length - 1, Math.floor(radii.length * 0.70))] || baseRadius;
+  const radius = radii[Math.min(radii.length - 1, Math.floor(radii.length * 0.70))] || baseRadius;
+  const fitted = fitCircleToPoints(edgePoints);
+
+  if (!fitted || fitted.radius <= radius) {
+    return { centerX, centerY, radius };
+  }
+
+  const maxRadiusBoost = Math.max(4, baseRadius * 0.04);
+  const blendedBoost = Math.min(maxRadiusBoost, (fitted.radius - radius) * 0.28);
+  const contourFit = refineCircleWithContour(
+    grayscale,
+    chroma,
+    width,
+    height,
+    centerX,
+    centerY,
+    radius + blendedBoost,
+    brightThreshold,
+    chromaThreshold,
+  );
+
+  if (contourFit) {
+    const contourBoost = Math.max(0, contourFit.radius - (radius + blendedBoost));
+    return {
+      centerX: contourFit.centerX,
+      centerY: contourFit.centerY,
+      radius: radius + blendedBoost + Math.min(contourBoost, Math.max(2, baseRadius * 0.02)),
+    };
+  }
+
+  return {
+    centerX,
+    centerY,
+    radius: radius + blendedBoost,
+  };
 };
 
 export const smoothCircleBox = (previous: CircleBox | null, next: CircleBox, alpha: number) => {
@@ -137,20 +240,21 @@ export const getFallbackBox = (): CircleBox => ({
   height: 0.64,
 });
 
-export const detectCircleBox = (video: HTMLVideoElement): CircleBox | null => {
-  const width = video.videoWidth;
-  const height = video.videoHeight;
+export const expandCircleBox = (box: CircleBox, scale: number) => {
+  const centerX = box.x + box.width / 2;
+  const centerY = box.y + box.height / 2;
+  const width = box.width * scale;
+  const height = box.height * scale;
+  return clampBox({
+    x: centerX - width / 2,
+    y: centerY - height / 2,
+    width,
+    height,
+  });
+};
+
+const detectCircleBoxInFrame = (data: Uint8ClampedArray, width: number, height: number): CircleBox | null => {
   if (!width || !height) return null;
-
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  if (!ctx) return null;
-
-  ctx.drawImage(video, 0, 0, width, height);
-  const image = ctx.getImageData(0, 0, width, height);
-  const data = image.data;
 
   const cellSize = Math.max(6, Math.round(Math.min(width, height) / 42));
   const gridWidth = Math.max(8, Math.floor(width / cellSize));
@@ -300,7 +404,7 @@ export const detectCircleBox = (video: HTMLVideoElement): CircleBox | null => {
   if (seeded) {
     const centerX = (seeded.centerX + 0.5) * cellSize;
     const centerY = (seeded.centerY + 0.5) * cellSize;
-    const radius = refineCircleRadius(
+    const refined = refineCircleFit(
       grayscale,
       chroma,
       width,
@@ -309,13 +413,14 @@ export const detectCircleBox = (video: HTMLVideoElement): CircleBox | null => {
       centerY,
       Math.max(seeded.radius * cellSize * 1.28, 32),
       brightThreshold,
+      chromaThreshold,
     );
-    const size = radius * 2.278;
+    const size = refined.radius * 2.278;
     const padding = size * 0.0285;
 
     return clampBox({
-      x: clamp01((centerX - size / 2 - padding) / width),
-      y: clamp01((centerY - size / 2 - padding) / height),
+      x: clamp01((refined.centerX - size / 2 - padding) / width),
+      y: clamp01((refined.centerY - size / 2 - padding) / height),
       width: Math.min(1, (size + padding * 2) / width),
       height: Math.min(1, (size + padding * 2) / height),
     });
@@ -423,7 +528,7 @@ export const detectCircleBox = (video: HTMLVideoElement): CircleBox | null => {
 
   const centerX = (best.centerX + 0.5) * cellSize;
   const centerY = (best.centerY + 0.5) * cellSize;
-  const radius = refineCircleRadius(
+  const refined = refineCircleFit(
     grayscale,
     chroma,
     width,
@@ -432,14 +537,46 @@ export const detectCircleBox = (video: HTMLVideoElement): CircleBox | null => {
     centerY,
     best.radius * cellSize,
     brightThreshold,
+    chromaThreshold,
   );
-  const size = radius * 2.379;
+  const size = refined.radius * 2.379;
   const padding = size * 0.0355;
 
   return clampBox({
-    x: clamp01((centerX - size / 2 - padding) / width),
-    y: clamp01((centerY - size / 2 - padding) / height),
+    x: clamp01((refined.centerX - size / 2 - padding) / width),
+    y: clamp01((refined.centerY - size / 2 - padding) / height),
     width: Math.min(1, (size + padding * 2) / width),
     height: Math.min(1, (size + padding * 2) / height),
+  });
+};
+
+export const detectCircleBox = (video: HTMLVideoElement, searchBox?: CircleBox): CircleBox | null => {
+  const fullWidth = video.videoWidth;
+  const fullHeight = video.videoHeight;
+  if (!fullWidth || !fullHeight) return null;
+
+  const canvas = document.createElement('canvas');
+  const roi = searchBox ? clampBox(searchBox) : null;
+  const cropX = roi ? Math.max(0, Math.floor(roi.x * fullWidth)) : 0;
+  const cropY = roi ? Math.max(0, Math.floor(roi.y * fullHeight)) : 0;
+  const cropWidth = roi ? Math.max(1, Math.min(fullWidth - cropX, Math.floor(roi.width * fullWidth))) : fullWidth;
+  const cropHeight = roi ? Math.max(1, Math.min(fullHeight - cropY, Math.floor(roi.height * fullHeight))) : fullHeight;
+
+  canvas.width = cropWidth;
+  canvas.height = cropHeight;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+
+  ctx.drawImage(video, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+  const image = ctx.getImageData(0, 0, cropWidth, cropHeight);
+  const localBox = detectCircleBoxInFrame(image.data, cropWidth, cropHeight);
+  if (!localBox) return null;
+  if (!roi) return localBox;
+
+  return clampBox({
+    x: (cropX + localBox.x * cropWidth) / fullWidth,
+    y: (cropY + localBox.y * cropHeight) / fullHeight,
+    width: (localBox.width * cropWidth) / fullWidth,
+    height: (localBox.height * cropHeight) / fullHeight,
   });
 };

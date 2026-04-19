@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Camera, RefreshCcw } from 'lucide-react';
-import { getFallbackBox, type CircleBox, detectCircleBox, smoothCircleBox } from './circleDetector';
+import { expandCircleBox, getFallbackBox, type CircleBox, detectCircleBox, smoothCircleBox } from './circleDetector';
 import { useAppVersionLabel } from '../appVersion';
 
 const isContinuityLabel = (label: string) => /iphone|continuity/i.test(label);
@@ -19,6 +19,8 @@ export const CircleCameraPage = () => {
   const [status, setStatus] = useState('Подключаю камеру...');
   const [frameBox, setFrameBox] = useState<CircleBox>(getFallbackBox());
   const [hasCircle, setHasCircle] = useState(false);
+  const trackedBoxRef = useRef<CircleBox | null>(null);
+  const displayFrameBox = hasCircle ? expandCircleBox(frameBox, 1.035) : frameBox;
 
   const resolvedDeviceId = useMemo(() => {
     if (selectedDeviceId) return selectedDeviceId;
@@ -101,19 +103,34 @@ export const CircleCameraPage = () => {
 
     let cancelled = false;
     let missCount = 0;
+    let trackingMissCount = 0;
 
     const tick = () => {
       const video = videoRef.current;
       if (cancelled || !video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
 
-      const detected = detectCircleBox(video);
+      const trackingWindow = trackedBoxRef.current ? expandCircleBox(trackedBoxRef.current, 1.55) : null;
+      const trackingDetected = trackingWindow ? detectCircleBox(video, trackingWindow) : null;
+      const detected = trackingDetected || detectCircleBox(video);
+
       if (detected) {
         missCount = 0;
+        trackingMissCount = 0;
         setHasCircle(true);
-        setFrameBox((previous) => smoothCircleBox(previous, detected, 0.24));
-        setStatus('Круг найден. Держите объект в кадре.');
+        trackedBoxRef.current = detected;
+        setFrameBox((previous) => smoothCircleBox(previous, detected, trackingDetected ? 0.32 : 0.24));
+        setStatus(trackingDetected ? 'Круг удерживается. Держите объект в кадре.' : 'Круг найден. Держите объект в кадре.');
       } else {
         missCount += 1;
+        trackingMissCount += 1;
+
+        if (trackingMissCount <= 4 && trackedBoxRef.current) {
+          setHasCircle(true);
+          setStatus('Удерживаю круг. Не уводите объект из кадра.');
+          return;
+        }
+
+        trackedBoxRef.current = null;
         if (missCount >= 3) {
           setHasCircle(false);
           setFrameBox((previous) => smoothCircleBox(previous, getFallbackBox(), 0.12));
@@ -127,6 +144,7 @@ export const CircleCameraPage = () => {
     return () => {
       cancelled = true;
       window.clearInterval(timer);
+      trackedBoxRef.current = null;
     };
   }, [isReady]);
 
@@ -149,10 +167,10 @@ export const CircleCameraPage = () => {
                     hasCircle ? 'border-emerald-400 shadow-[0_0_0_1px_rgba(52,211,153,0.45)]' : 'border-emerald-500/60'
                   }`}
                   style={{
-                    left: `${frameBox.x * 100}%`,
-                    top: `${frameBox.y * 100}%`,
-                    width: `${frameBox.width * 100}%`,
-                    height: `${frameBox.height * 100}%`,
+                    left: `${displayFrameBox.x * 100}%`,
+                    top: `${displayFrameBox.y * 100}%`,
+                    width: `${displayFrameBox.width * 100}%`,
+                    height: `${displayFrameBox.height * 100}%`,
                   }}
                 >
                   <div className="absolute inset-[8%] rounded-full border border-emerald-300/25" />
