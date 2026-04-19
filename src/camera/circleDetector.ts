@@ -117,7 +117,7 @@ const refineCircleRadius = (
 
   if (radii.length < 8) return baseRadius;
   radii.sort((left, right) => left - right);
-  return radii[Math.min(radii.length - 1, Math.floor(radii.length * 0.58))] || baseRadius;
+  return radii[Math.min(radii.length - 1, Math.floor(radii.length * 0.64))] || baseRadius;
 };
 
 export const smoothCircleBox = (previous: CircleBox | null, next: CircleBox, alpha: number) => {
@@ -310,8 +310,8 @@ export const detectCircleBox = (video: HTMLVideoElement): CircleBox | null => {
       Math.max(seeded.radius * cellSize * 1.28, 32),
       brightThreshold,
     );
-    const size = radius * 2.22;
-    const padding = size * 0.025;
+    const size = radius * 2.24;
+    const padding = size * 0.026;
 
     return clampBox({
       x: clamp01((centerX - size / 2 - padding) / width),
@@ -433,8 +433,8 @@ export const detectCircleBox = (video: HTMLVideoElement): CircleBox | null => {
     best.radius * cellSize,
     brightThreshold,
   );
-  const size = radius * 2.32;
-  const padding = size * 0.032;
+  const size = radius * 2.34;
+  const padding = size * 0.033;
 
   return clampBox({
     x: clamp01((centerX - size / 2 - padding) / width),
